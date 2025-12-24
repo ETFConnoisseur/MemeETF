@@ -1,0 +1,10 @@
+node_modules
+.next
+.vite
+target
+.env
+.env.local
+.env*.local
+*.log
+.DS_Store
+

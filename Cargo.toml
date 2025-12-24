@@ -1,0 +1,7 @@
+[workspace]
+members = ["programs/mtf-etf"]
+resolver = "2"
+
+[profile.release]
+overflow-checks = true
+

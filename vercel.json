@@ -1,0 +1,18 @@
+{
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev:next",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "outputDirectory": ".next",
+  "rewrites": [
+    {
+      "source": "/",
+      "destination": "/vite-build/index.html"
+    },
+    {
+      "source": "/assets/:path*",
+      "destination": "/vite-build/assets/:path*"
+    }
+  ]
+}
+
