@@ -17,11 +17,14 @@ export function getDatabasePool(): Pool | null {
     });
     
     const config: any = {
-      // Always use SSL for Supabase and other cloud databases
-      // rejectUnauthorized: false allows self-signed certificates (needed for Supabase)
-      ssl: { rejectUnauthorized: false },
       connectionTimeoutMillis: 10000, // Increased timeout
       max: 20, // Connection pool size
+    };
+    
+    // SSL config - MUST be set for Supabase
+    // rejectUnauthorized: false allows self-signed certificates
+    config.ssl = {
+      rejectUnauthorized: false
     };
 
     if (connectionString) {
@@ -52,12 +55,15 @@ export function getDatabasePool(): Pool | null {
         config.database = url.pathname.replace(/^\//, '').split('?')[0] || 'postgres';
         
         // CRITICAL: Force SSL config to handle self-signed certificates
-        // This is the only way to ensure rejectUnauthorized: false is respected
-        config.ssl = { 
-          rejectUnauthorized: false  // Allow self-signed certificates (Supabase uses these)
+        // This MUST be set explicitly for Supabase
+        // The pg library requires this to be set as an object, not just a boolean
+        config.ssl = {
+          rejectUnauthorized: false,  // Allow self-signed certificates (Supabase uses these)
+          require: true  // Require SSL connection
         };
         
         // Don't use connectionString - use individual config instead
+        // This ensures our SSL config is properly applied
         delete config.connectionString;
         
         console.log('[DB] Parsed DATABASE_URL into individual config');
@@ -84,9 +90,13 @@ export function getDatabasePool(): Pool | null {
         finalConnectionString += separator + 'sslmode=prefer';
         
         config.connectionString = finalConnectionString;
-        config.ssl = { rejectUnauthorized: false };
+        // Even when using connection string, we MUST set SSL config explicitly
+        config.ssl = {
+          rejectUnauthorized: false,
+          require: true
+        };
         
-        console.log('[DB] SSL configured: rejectUnauthorized=false (for Supabase)');
+        console.log('[DB] SSL configured: rejectUnauthorized=false, require=true (for Supabase)');
       }
     } else {
       // Fallback to individual variables
@@ -109,8 +119,10 @@ export function getDatabasePool(): Pool | null {
         
         // CRITICAL: Force SSL config to handle self-signed certificates
         // This must be set for Supabase connections
-        config.ssl = { 
-          rejectUnauthorized: false  // Allow self-signed certificates (Supabase uses these)
+        // The pg library requires explicit SSL object configuration
+        config.ssl = {
+          rejectUnauthorized: false,  // Allow self-signed certificates (Supabase uses these)
+          require: true  // Require SSL connection
         };
         
         // Log connection details (without password)
