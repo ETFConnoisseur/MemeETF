@@ -33,9 +33,23 @@ export function getDatabasePool(): Pool | null {
         const url = new URL(connectionString);
         config.host = url.hostname;
         config.port = parseInt(url.port || '5432');
-        config.user = decodeURIComponent(url.username); // Decode username in case it's encoded
-        config.password = decodeURIComponent(url.password); // Decode password in case it's encoded
-        config.database = url.pathname.replace(/^\//, '').split('?')[0] || 'postgres'; // Remove query params from path
+        
+        // Handle username and password (may be in format "user:pass" or just "user")
+        const userInfo = url.username ? decodeURIComponent(url.username) : '';
+        const passwordFromUrl = url.password ? decodeURIComponent(url.password) : '';
+        
+        // If username contains colon, it might be "user:pass" format
+        if (userInfo.includes(':') && !passwordFromUrl) {
+          const parts = userInfo.split(':');
+          config.user = parts[0];
+          config.password = parts.slice(1).join(':'); // In case password has colons
+        } else {
+          config.user = userInfo;
+          config.password = passwordFromUrl;
+        }
+        
+        // Extract database name (remove leading slash and query params)
+        config.database = url.pathname.replace(/^\//, '').split('?')[0] || 'postgres';
         
         // CRITICAL: Force SSL config to handle self-signed certificates
         // This is the only way to ensure rejectUnauthorized: false is respected
@@ -53,10 +67,12 @@ export function getDatabasePool(): Pool | null {
           user: config.user,
           database: config.database,
           ssl: 'enabled (rejectUnauthorized=false)',
-          passwordLength: config.password ? config.password.length : 0
+          passwordLength: config.password ? config.password.length : 0,
+          hasPassword: !!config.password
         });
       } catch (parseError: any) {
         console.error('[DB] Failed to parse DATABASE_URL:', parseError.message);
+        console.error('[DB] Parse error details:', parseError);
         // Fallback: use connection string but modify SSL mode
         console.warn('[DB] Could not parse DATABASE_URL, using as-is with SSL override');
         
@@ -124,15 +140,33 @@ export function getDatabasePool(): Pool | null {
     }
 
     try {
+      // Log final config before creating pool (without password)
+      console.log('[DB] Creating pool with config:', {
+        host: config.host || 'from connectionString',
+        port: config.port || 'from connectionString',
+        user: config.user || 'from connectionString',
+        database: config.database || 'from connectionString',
+        hasSSL: !!config.ssl,
+        sslRejectUnauthorized: config.ssl?.rejectUnauthorized,
+        connectionTimeout: config.connectionTimeoutMillis,
+        maxConnections: config.max
+      });
+      
       pool = new Pool(config);
 
       pool.on('error', (err) => {
         console.error('[DB] Unexpected error on idle client', err);
+        console.error('[DB] Pool error details:', {
+          message: err.message,
+          code: err.code,
+          name: err.name
+        });
       });
       
       // Test connection immediately (but don't block - let queries handle errors)
       pool.connect().then(client => {
         console.log('[DB] ✅ Successfully connected to Postgres database');
+        console.log('[DB] Connection test query successful');
         client.release();
       }).catch(err => {
         console.error('[DB] ❌ Failed to connect to Postgres database:', err.message);
