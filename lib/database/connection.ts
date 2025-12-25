@@ -30,29 +30,42 @@ export function getDatabasePool(): Pool | null {
     if (connectionString) {
       console.log('[DB] Using DATABASE_URL connection string');
       
-      // For Supabase, use connection string directly with SSL override
-      // The pg library needs explicit SSL config to handle self-signed certificates
-      // Remove any existing sslmode to avoid conflicts
-      let finalConnectionString = connectionString.replace(/[?&]sslmode=[^&]*/g, '');
-      
-      // Ensure sslmode=require is in the connection string
-      const separator = finalConnectionString.includes('?') ? '&' : '?';
-      finalConnectionString += separator + 'sslmode=require';
-      
-      config.connectionString = finalConnectionString;
-      
-      // CRITICAL: Override SSL config to handle self-signed certificates
-      // This MUST be set as an object - the pg library will use this
-      // even when the connection string specifies sslmode
-      config.ssl = {
-        rejectUnauthorized: false  // This allows Supabase's self-signed certificates
-      };
-      
-      console.log('[DB] Using DATABASE_URL with SSL override for self-signed certificates');
-      console.log('[DB] SSL config:', {
-        rejectUnauthorized: false,
-        connectionString: finalConnectionString.substring(0, 50) + '...'
-      });
+      // Parse DATABASE_URL and use individual config parameters
+      // This gives us full control over SSL settings
+      try {
+        const url = new URL(connectionString);
+        
+        // Extract connection parameters
+        config.host = url.hostname;
+        config.port = parseInt(url.port || '5432');
+        config.user = decodeURIComponent(url.username || '');
+        config.password = decodeURIComponent(url.password || '');
+        config.database = url.pathname.replace(/^\//, '').split('?')[0] || 'postgres';
+        
+        // CRITICAL: SSL config MUST be set as an object with rejectUnauthorized: false
+        // This is the ONLY way to handle Supabase's self-signed certificates
+        config.ssl = {
+          rejectUnauthorized: false
+        };
+        
+        // DO NOT use connectionString - use individual parameters
+        // This ensures SSL config is properly applied
+        delete config.connectionString;
+        
+        console.log('[DB] Parsed DATABASE_URL into individual config parameters');
+        console.log('[DB] Connection config:', {
+          host: config.host,
+          port: config.port,
+          user: config.user,
+          database: config.database,
+          sslRejectUnauthorized: config.ssl.rejectUnauthorized,
+          hasPassword: !!config.password
+        });
+      } catch (parseError: any) {
+        console.error('[DB] Failed to parse DATABASE_URL:', parseError.message);
+        console.error('[DB] This should not happen with a valid connection string');
+        return null;
+      }
     } else {
       // Fallback to individual variables
       if (process.env.PGHOST && process.env.PGUSER && process.env.PGDATABASE) {
