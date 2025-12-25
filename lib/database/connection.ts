@@ -30,74 +30,29 @@ export function getDatabasePool(): Pool | null {
     if (connectionString) {
       console.log('[DB] Using DATABASE_URL connection string');
       
-      // Parse DATABASE_URL to extract components and build config manually
-      // This ensures SSL config is properly applied
-      try {
-        const url = new URL(connectionString);
-        config.host = url.hostname;
-        config.port = parseInt(url.port || '5432');
-        
-        // Handle username and password (may be in format "user:pass" or just "user")
-        const userInfo = url.username ? decodeURIComponent(url.username) : '';
-        const passwordFromUrl = url.password ? decodeURIComponent(url.password) : '';
-        
-        // If username contains colon, it might be "user:pass" format
-        if (userInfo.includes(':') && !passwordFromUrl) {
-          const parts = userInfo.split(':');
-          config.user = parts[0];
-          config.password = parts.slice(1).join(':'); // In case password has colons
-        } else {
-          config.user = userInfo;
-          config.password = passwordFromUrl;
-        }
-        
-        // Extract database name (remove leading slash and query params)
-        config.database = url.pathname.replace(/^\//, '').split('?')[0] || 'postgres';
-        
-        // CRITICAL: Force SSL config to handle self-signed certificates
-        // This MUST be set explicitly for Supabase
-        // The pg library requires this to be set as an object, not just a boolean
-        config.ssl = {
-          rejectUnauthorized: false,  // Allow self-signed certificates (Supabase uses these)
-          require: true  // Require SSL connection
-        };
-        
-        // Don't use connectionString - use individual config instead
-        // This ensures our SSL config is properly applied
-        delete config.connectionString;
-        
-        console.log('[DB] Parsed DATABASE_URL into individual config');
-        console.log('[DB] Connection config:', {
-          host: config.host,
-          port: config.port,
-          user: config.user,
-          database: config.database,
-          ssl: 'enabled (rejectUnauthorized=false)',
-          passwordLength: config.password ? config.password.length : 0,
-          hasPassword: !!config.password
-        });
-      } catch (parseError: any) {
-        console.error('[DB] Failed to parse DATABASE_URL:', parseError.message);
-        console.error('[DB] Parse error details:', parseError);
-        // Fallback: use connection string but modify SSL mode
-        console.warn('[DB] Could not parse DATABASE_URL, using as-is with SSL override');
-        
-        // Remove any existing sslmode to avoid conflicts
-        let finalConnectionString = connectionString.replace(/[?&]sslmode=[^&]*/g, '');
-        
-        // Use sslmode=prefer to allow our SSL config to take precedence
-        const separator = finalConnectionString.includes('?') ? '&' : '?';
-        finalConnectionString += separator + 'sslmode=prefer';
-        
-        config.connectionString = finalConnectionString;
-        // Even when using connection string, we MUST set SSL config explicitly
-        config.ssl = {
-          rejectUnauthorized: false,
-          require: true
-        };
-        
-        console.log('[DB] SSL configured: rejectUnauthorized=false, require=true (for Supabase)');
-      }
+      // For Supabase, use connection string directly with SSL override
+      // The pg library needs explicit SSL config to handle self-signed certificates
+      // Remove any existing sslmode to avoid conflicts
+      let finalConnectionString = connectionString.replace(/[?&]sslmode=[^&]*/g, '');
+      
+      // Ensure sslmode=require is in the connection string
+      const separator = finalConnectionString.includes('?') ? '&' : '?';
+      finalConnectionString += separator + 'sslmode=require';
+      
+      config.connectionString = finalConnectionString;
+      
+      // CRITICAL: Override SSL config to handle self-signed certificates
+      // This MUST be set as an object - the pg library will use this
+      // even when the connection string specifies sslmode
+      config.ssl = {
+        rejectUnauthorized: false  // This allows Supabase's self-signed certificates
+      };
+      
+      console.log('[DB] Using DATABASE_URL with SSL override for self-signed certificates');
+      console.log('[DB] SSL config:', {
+        rejectUnauthorized: false,
+        connectionString: finalConnectionString.substring(0, 50) + '...'
+      });
     } else {
       // Fallback to individual variables
       if (process.env.PGHOST && process.env.PGUSER && process.env.PGDATABASE) {
