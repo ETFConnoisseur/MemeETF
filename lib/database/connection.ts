@@ -4,6 +4,16 @@ let pool: Pool | null = null;
 
 export function getDatabasePool(): Pool | null {
   if (!pool) {
+    // CRITICAL: For Supabase self-signed certificates, we need to disable Node.js SSL verification
+    // This is a workaround for serverless environments where SSL config might not be respected
+    if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'development') {
+      // Only disable if not already set
+      if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === undefined) {
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+        console.log('[DB] ⚠️ Set NODE_TLS_REJECT_UNAUTHORIZED=0 for Supabase SSL');
+      }
+    }
+    
     const connectionString = process.env.DATABASE_URL;
     
     // Log environment variable status (without sensitive data)
