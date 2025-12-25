@@ -39,11 +39,21 @@ export async function GET(request: NextRequest) {
         },
       });
     } catch (dbError: any) {
+      console.error('[Test DB] Query error:', dbError);
+      console.error('[Test DB] Error code:', dbError.code);
+      console.error('[Test DB] Error details:', {
+        message: dbError.message,
+        code: dbError.code,
+        name: dbError.name,
+      });
+      
       return NextResponse.json({
         success: false,
         error: 'Database query failed',
         envCheck,
         dbError: dbError.message,
+        dbErrorCode: dbError.code,
+        dbErrorName: dbError.name,
         message: 'Database pool exists but query failed. Check database credentials and network access.',
       }, { status: 500 });
     }
