@@ -17,26 +17,97 @@ export function getDatabasePool(): Pool | null {
     });
     
     const config: any = {
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      // Always use SSL for Supabase and other cloud databases
+      // rejectUnauthorized: false allows self-signed certificates (needed for Supabase)
+      ssl: { rejectUnauthorized: false },
       connectionTimeoutMillis: 10000, // Increased timeout
       max: 20, // Connection pool size
     };
 
     if (connectionString) {
       console.log('[DB] Using DATABASE_URL connection string');
-      config.connectionString = connectionString;
+      
+      // Parse DATABASE_URL to extract components and build config manually
+      // This ensures SSL config is properly applied
+      try {
+        const url = new URL(connectionString);
+        config.host = url.hostname;
+        config.port = parseInt(url.port || '5432');
+        config.user = url.username;
+        config.password = url.password;
+        config.database = url.pathname.replace(/^\//, '') || 'postgres';
+        
+        // CRITICAL: Force SSL config to handle self-signed certificates
+        // This is the only way to ensure rejectUnauthorized: false is respected
+        config.ssl = { 
+          rejectUnauthorized: false  // Allow self-signed certificates (Supabase uses these)
+        };
+        
+        // Don't use connectionString - use individual config instead
+        delete config.connectionString;
+        
+        console.log('[DB] Parsed DATABASE_URL into individual config');
+        console.log('[DB] Connection config:', {
+          host: config.host,
+          port: config.port,
+          user: config.user,
+          database: config.database,
+          ssl: 'enabled (rejectUnauthorized=false)'
+        });
+      } catch (parseError) {
+        // Fallback: use connection string but modify SSL mode
+        console.warn('[DB] Could not parse DATABASE_URL, using as-is with SSL override');
+        
+        // Remove any existing sslmode to avoid conflicts
+        let finalConnectionString = connectionString.replace(/[?&]sslmode=[^&]*/g, '');
+        
+        // Use sslmode=prefer to allow our SSL config to take precedence
+        const separator = finalConnectionString.includes('?') ? '&' : '?';
+        finalConnectionString += separator + 'sslmode=prefer';
+        
+        config.connectionString = finalConnectionString;
+        config.ssl = { rejectUnauthorized: false };
+        
+        console.log('[DB] SSL configured: rejectUnauthorized=false (for Supabase)');
+      }
     } else {
       // Fallback to individual variables
       if (process.env.PGHOST && process.env.PGUSER && process.env.PGDATABASE) {
         console.log('[DB] Using individual PG environment variables');
+        
+        // Check if PGHOST is localhost (won't work on Vercel)
+        if (process.env.PGHOST === 'localhost' || process.env.PGHOST === '127.0.0.1') {
+          console.error('[DB] CRITICAL: PGHOST is set to localhost/127.0.0.1');
+          console.error('[DB] This will NOT work on Vercel. Use your actual Supabase host.');
+          console.error('[DB] Get your host from: https://supabase.com/dashboard/project/ucvtpvrfzgkonqwtdmue/settings/database');
+          return null;
+        }
+        
         config.host = process.env.PGHOST;
         config.port = parseInt(process.env.PGPORT || '5432');
         config.user = process.env.PGUSER;
         config.password = process.env.PGPASSWORD;
         config.database = process.env.PGDATABASE;
-        // Force SSL in production for most cloud databases
-        if (process.env.NODE_ENV === 'production') {
-          config.ssl = { rejectUnauthorized: false };
+        
+        // CRITICAL: Force SSL config to handle self-signed certificates
+        // This must be set for Supabase connections
+        config.ssl = { 
+          rejectUnauthorized: false  // Allow self-signed certificates (Supabase uses these)
+        };
+        
+        // Log connection details (without password)
+        console.log('[DB] Connection config:', {
+          host: config.host,
+          port: config.port,
+          user: config.user,
+          database: config.database,
+          ssl: 'enabled (rejectUnauthorized=false)'
+        });
+        
+        // Warn if database name is wrong
+        if (config.database !== 'postgres' && config.database !== 'defaultdb') {
+          console.warn('[DB] ⚠️ WARNING: PGDATABASE is set to:', config.database);
+          console.warn('[DB] Supabase uses "postgres" as the database name. Current value may cause connection issues.');
         }
       } else {
          console.error('[DB] CRITICAL: Database configuration missing.');
@@ -45,6 +116,7 @@ export function getDatabasePool(): Pool | null {
          console.error('[DB] PGUSER:', process.env.PGUSER || 'NOT SET');
          console.error('[DB] PGDATABASE:', process.env.PGDATABASE || 'NOT SET');
          console.error('[DB] PGPASSWORD:', process.env.PGPASSWORD ? 'SET (hidden)' : 'NOT SET');
+         console.error('[DB] NODE_ENV:', process.env.NODE_ENV || 'NOT SET');
          return null;
       }
     }
@@ -58,11 +130,31 @@ export function getDatabasePool(): Pool | null {
       
       // Test connection immediately
       pool.connect().then(client => {
-        console.log('[DB] Successfully connected to Postgres database');
+        console.log('[DB] ✅ Successfully connected to Postgres database');
         client.release();
       }).catch(err => {
-        console.error('[DB] Failed to connect to Postgres database:', err.message);
-        console.error('[DB] Connection config:', { host: config.host, port: config.port, user: config.user, database: config.database }); // Don't log password
+        console.error('[DB] ❌ Failed to connect to Postgres database:', err.message);
+        console.error('[DB] Error code:', err.code);
+        console.error('[DB] Connection config:', { 
+          host: config.host || 'from DATABASE_URL', 
+          port: config.port || 'from DATABASE_URL', 
+          user: config.user || 'from DATABASE_URL', 
+          database: config.database || 'from DATABASE_URL',
+          hasSSL: !!config.ssl
+        });
+        
+        // Provide helpful error messages
+        if (err.message?.includes('ECONNREFUSED') || err.message?.includes('127.0.0.1') || err.message?.includes('localhost')) {
+          console.error('[DB] 🔴 ERROR: Trying to connect to localhost!');
+          console.error('[DB] This means PGHOST is set to localhost or environment variables are missing.');
+          console.error('[DB] Fix: Set DATABASE_URL or PGHOST to your actual Supabase host in Vercel.');
+          console.error('[DB] Get connection string from: https://supabase.com/dashboard/project/ucvtpvrfzgkonqwtdmue/settings/database');
+        }
+        
+        if (err.message?.includes('certificate') || err.message?.includes('SSL')) {
+          console.error('[DB] 🔴 SSL Certificate Error');
+          console.error('[DB] SSL is enabled. If this persists, check Supabase SSL settings.');
+        }
       });
 
     } catch (error) {
