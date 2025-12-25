@@ -1,0 +1,3 @@
+add a toast on the top of the page for a transactions (txs) for 1 creating a etf 2 buying and selling a etf. 
+
+pop up, to view tx. once transaction has been finished with solscan link. 
