@@ -144,7 +144,7 @@ export function getDatabasePool(): Pool | null {
       
       pool = new Pool(config);
 
-      pool.on('error', (err) => {
+      pool.on('error', (err: any) => {
         console.error('[DB] Unexpected error on idle client', err);
         console.error('[DB] Pool error details:', {
           message: err.message,
@@ -158,7 +158,7 @@ export function getDatabasePool(): Pool | null {
         console.log('[DB] ✅ Successfully connected to Postgres database');
         console.log('[DB] Connection test query successful');
         client.release();
-      }).catch(err => {
+      }).catch((err: any) => {
         console.error('[DB] ❌ Failed to connect to Postgres database:', err.message);
         console.error('[DB] Error code:', err.code);
         console.error('[DB] Error name:', err.name);
