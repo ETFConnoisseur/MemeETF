@@ -89,6 +89,14 @@ export async function POST(request: NextRequest) {
       console.log('[Migration] Investments columns may already exist:', e.message);
     }
 
+    // Add actual_mint column to investment_swaps table for devnet substitution tracking
+    try {
+      await pool.query(`ALTER TABLE investment_swaps ADD COLUMN IF NOT EXISTS actual_mint VARCHAR(44)`);
+      console.log('[Migration] Added actual_mint column to investment_swaps table');
+    } catch (e: any) {
+      console.log('[Migration] actual_mint column may already exist:', e.message);
+    }
+
     return NextResponse.json({
       success: true,
       message: 'Migration completed successfully. All tables created.',

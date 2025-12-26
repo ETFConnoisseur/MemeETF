@@ -150,10 +150,12 @@ export async function POST(request: NextRequest) {
         currentMC,
         purchase24hChange,
         JSON.stringify(swapResults.map((s, i) => ({
-          mint: tokens[i].address,
+          mint: tokens[i].address, // Original token address from ETF
+          actualMint: s.outputMint, // Actual token minted (devnet USDC on devnet)
           symbol: tokens[i].symbol,
           amount: s.outputAmount,
           weight: tokenWeights[i],
+          isDevnetSubstitution: isDevnet && tokens[i].address !== s.outputMint,
         }))),
         currentMC,
       ]
@@ -166,25 +168,54 @@ export async function POST(request: NextRequest) {
       const swap = swapResults[i];
       const token = tokens[i];
 
-      await pool.query(
-        `INSERT INTO investment_swaps (
-          investment_id, token_mint, token_symbol, token_name,
-          weight, sol_amount, token_amount, tx_signature,
-          swap_type, is_devnet_mock
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'buy', $9)`,
-        [
-          investmentId,
-          token.address,
-          token.symbol,
-          token.name,
-          tokenWeights[i],
-          swap.inputAmount,
-          swap.outputAmount,
-          swap.signature,
-          swap.isDevnetMock,
-        ]
-      );
+      // Try to insert with actual_mint column if it exists, fallback to just token_mint
+      try {
+        await pool.query(
+          `INSERT INTO investment_swaps (
+            investment_id, token_mint, actual_mint, token_symbol, token_name,
+            weight, sol_amount, token_amount, tx_signature,
+            swap_type, is_devnet_mock
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'buy', $10)`,
+          [
+            investmentId,
+            token.address, // Original mainnet token
+            swap.outputMint, // Actual minted token (devnet USDC on devnet)
+            token.symbol,
+            token.name,
+            tokenWeights[i],
+            swap.inputAmount,
+            swap.outputAmount,
+            swap.signature,
+            swap.isDevnetMock,
+          ]
+        );
+      } catch (insertError: any) {
+        // If actual_mint column doesn't exist, insert without it
+        if (insertError.code === '42703') {
+          await pool.query(
+            `INSERT INTO investment_swaps (
+              investment_id, token_mint, token_symbol, token_name,
+              weight, sol_amount, token_amount, tx_signature,
+              swap_type, is_devnet_mock
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'buy', $9)`,
+            [
+              investmentId,
+              token.address,
+              token.symbol,
+              token.name,
+              tokenWeights[i],
+              swap.inputAmount,
+              swap.outputAmount,
+              swap.signature,
+              swap.isDevnetMock,
+            ]
+          );
+        } else {
+          throw insertError;
+        }
+      }
     }
 
     // Update ETF stats

@@ -168,24 +168,47 @@ export async function swapSolToToken(
   let finalOutputMint = outputTokenMint;
   let isSubstituted = false;
 
-  // On devnet, check if token exists, otherwise use USDC
+  // On devnet, ALWAYS use USDC for all tokens (mainnet tokens don't exist on devnet)
   if (isDevnet) {
-    const exists = await tokenExistsOnChain(connection, outputTokenMint);
-    if (!exists) {
-      console.log(`[JupiterSwap] Token ${outputTokenMint.toBase58()} not on devnet, using USDC`);
-      finalOutputMint = DEVNET_USDC;
-      isSubstituted = true;
+    console.log(`[JupiterSwap] Devnet mode: Substituting ${outputTokenMint.toBase58()} with devnet USDC`);
+    finalOutputMint = DEVNET_USDC;
+    isSubstituted = true;
+
+    // Try to execute a real swap on devnet using Jupiter
+    try {
+      const quote = await getJupiterQuote(
+        SOL_MINT,
+        finalOutputMint.toBase58(),
+        lamports,
+        100, // 1% slippage for devnet
+        true
+      );
+
+      if (quote) {
+        console.log('[JupiterSwap] Devnet quote received, executing swap...');
+        const signature = await executeJupiterSwap(connection, userKeypair, quote, true);
+
+        return {
+          signature,
+          inputAmount: solAmount,
+          outputAmount: parseInt(quote.outAmount),
+          inputMint: SOL_MINT,
+          outputMint: finalOutputMint.toBase58(),
+          isDevnetMock: false,
+        };
+      }
+    } catch (swapError: any) {
+      console.error('[JupiterSwap] Devnet swap failed:', swapError.message);
     }
 
-    // For devnet, we'll create a mock swap since Jupiter has no devnet liquidity
-    // In production mainnet, real swaps will occur
-    console.log('[JupiterSwap] ⚠️  Devnet detected - Creating mock swap');
+    // Fallback to mock if Jupiter swap fails on devnet
+    console.log('[JupiterSwap] ⚠️  Creating mock swap (Jupiter unavailable on devnet)');
     const mockSignature = `DEVNET_MOCK_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
     return {
       signature: mockSignature,
       inputAmount: solAmount,
-      outputAmount: 0, // Unknown on mock
+      outputAmount: solAmount * 1000000, // Mock: assume 1 SOL = 1M USDC tokens
       inputMint: SOL_MINT,
       outputMint: finalOutputMint.toBase58(),
       isDevnetMock: true,
@@ -245,10 +268,19 @@ export async function swapForEtfPurchase(
   const listerFee = totalSolAmount * 0.005; // 0.5%
   const solAfterFees = totalSolAmount - listerFee;
 
+  console.log(`[JupiterSwap] 🎯 Executing ${tokenMints.length} swaps on ${isDevnet ? 'DEVNET' : 'MAINNET'}`);
+  console.log(`[JupiterSwap] Total SOL after fees: ${solAfterFees.toFixed(4)}`);
+
+  if (isDevnet) {
+    console.log('[JupiterSwap] 🔄 DEVNET MODE: All tokens will be substituted with devnet USDC (4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU)');
+  }
+
   for (let i = 0; i < tokenMints.length; i++) {
     const tokenMint = tokenMints[i];
     const percentage = percentages[i];
     const solForToken = solAfterFees * (percentage / 100);
+
+    console.log(`[JupiterSwap] Swap ${i + 1}/${tokenMints.length}: ${solForToken.toFixed(4)} SOL (${percentage}%) for ${tokenMint.toBase58().substring(0, 8)}...`);
 
     try {
       const result = await swapSolToToken(
@@ -260,9 +292,12 @@ export async function swapForEtfPurchase(
       );
 
       results.push(result);
-      console.log(`[JupiterSwap] Swap ${i + 1}/${tokenMints.length} completed`);
+      console.log(`[JupiterSwap] ✅ Swap ${i + 1}/${tokenMints.length} completed: ${result.signature.substring(0, 20)}...`);
+      if (result.outputMint !== tokenMint.toBase58()) {
+        console.log(`[JupiterSwap] 🔄 Token substituted: ${tokenMint.toBase58().substring(0, 8)}... → ${result.outputMint.substring(0, 8)}...`);
+      }
     } catch (error) {
-      console.error(`[JupiterSwap] Swap ${i + 1} failed:`, error);
+      console.error(`[JupiterSwap] ❌ Swap ${i + 1} failed:`, error);
       // Continue with other swaps even if one fails
       results.push({
         signature: 'FAILED',
@@ -275,5 +310,6 @@ export async function swapForEtfPurchase(
     }
   }
 
+  console.log(`[JupiterSwap] 🎉 All swaps completed: ${results.filter(r => r.signature !== 'FAILED').length}/${results.length} successful`);
   return results;
 }
