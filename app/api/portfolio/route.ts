@@ -4,7 +4,7 @@ import { getDatabasePool } from '@/lib/database/connection';
 // Fetch current token prices from DexScreener
 async function fetchTokenPrices(addresses: string[]): Promise<Record<string, number>> {
   const prices: Record<string, number> = {};
-  
+
   for (const address of addresses) {
     try {
       const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${address}`);
@@ -21,7 +21,7 @@ async function fetchTokenPrices(addresses: string[]): Promise<Record<string, num
       // Ignore individual failures
     }
   }
-  
+
   return prices;
 }
 
@@ -46,23 +46,32 @@ export async function GET(request: NextRequest) {
         holdings: [],
         totalValue: 0,
         totalPnl: 0,
-        availableBalance: 0,
+        protocolBalance: 0,
       });
     }
 
-    // Get all portfolio positions with ETF details
-    let portfolioResult;
-    try {
-      portfolioResult = await pool.query(
-      `SELECT p.*, e.id as etf_id, e.name, e.creator, e.contract_address, 
-              e.market_cap_at_list, e.tokens, e.token_hash, e.created_at as etf_created_at
-       FROM portfolio p
-       JOIN etf_listings e ON p.etf_id = e.id
-       WHERE p.user_id = $1`,
+    // Get user's protocol balance
+    const userResult = await pool.query(
+      'SELECT protocol_sol_balance FROM users WHERE id = $1',
       [userId]
+    );
+    const protocolBalance = userResult.rows.length > 0
+      ? parseFloat(userResult.rows[0].protocol_sol_balance || '0')
+      : 0;
+
+    // Get all active ETF positions (not sold)
+    let investmentsResult;
+    try {
+      investmentsResult = await pool.query(
+        `SELECT i.*, e.name as etf_name, e.creator, e.tokens as etf_tokens
+         FROM investments i
+         JOIN etf_listings e ON i.etf_id = e.id
+         WHERE i.user_id = $1 AND i.is_sold = FALSE
+         ORDER BY i.created_at DESC`,
+        [userId]
       );
     } catch (queryError: any) {
-      console.error('[Portfolio API] Portfolio query failed:', queryError);
+      console.error('[Portfolio API] Investments query failed:', queryError);
       if (queryError.code === '42P01') {
         // Table doesn't exist
         return NextResponse.json({
@@ -70,42 +79,22 @@ export async function GET(request: NextRequest) {
           holdings: [],
           totalValue: 0,
           totalPnl: 0,
-          availableBalance: 0,
+          protocolBalance,
         });
       }
       throw queryError;
     }
 
-    // Get user's wallet balance (in SOL)
-    const walletResult = await pool.query(
-      'SELECT sol_balance FROM wallets WHERE user_id = $1',
-      [userId]
-    );
-    const availableBalanceSOL = walletResult.rows.length > 0 
-      ? parseFloat(walletResult.rows[0].sol_balance) 
-      : 0;
-
-    // Get investment history for P/L calculation
-    const investmentsResult = await pool.query(
-      `SELECT etf_id, SUM(sol_amount) as total_invested
-       FROM investments 
-       WHERE user_id = $1
-       GROUP BY etf_id`,
-      [userId]
-    );
-
-    const investmentsByEtf: Record<string, number> = {};
-    investmentsResult.rows.forEach(row => {
-      investmentsByEtf[row.etf_id] = parseFloat(row.total_invested);
-    });
-
     // Collect all token addresses to fetch current prices
     const allTokenAddresses: string[] = [];
-    portfolioResult.rows.forEach(row => {
-      const tokens = typeof row.tokens === 'string' ? JSON.parse(row.tokens) : row.tokens;
-      tokens.forEach((t: any) => {
-        if (t.address && !allTokenAddresses.includes(t.address)) {
-          allTokenAddresses.push(t.address);
+    investmentsResult.rows.forEach(row => {
+      const tokensPurchased = typeof row.tokens_purchased === 'string'
+        ? JSON.parse(row.tokens_purchased)
+        : row.tokens_purchased || [];
+
+      tokensPurchased.forEach((t: any) => {
+        if (t.mint && !allTokenAddresses.includes(t.mint)) {
+          allTokenAddresses.push(t.mint);
         }
       });
     });
@@ -114,98 +103,76 @@ export async function GET(request: NextRequest) {
     const currentPrices = await fetchTokenPrices(allTokenAddresses);
 
     // Build holdings array with P/L calculations
-    const holdings = portfolioResult.rows.map(row => {
-      const tokens = typeof row.tokens === 'string' ? JSON.parse(row.tokens) : row.tokens;
-      const listedMC = parseFloat(row.market_cap_at_list) || 0;
-      
-      // Calculate current weighted MC based on live prices (for display)
+    const holdings = investmentsResult.rows.map(row => {
+      const tokensPurchased = typeof row.tokens_purchased === 'string'
+        ? JSON.parse(row.tokens_purchased)
+        : row.tokens_purchased || [];
+
+      const purchaseMC = parseFloat(row.purchase_mc) || 0;
+      const solInvested = parseFloat(row.sol_invested) || 0;
+
+      // Calculate current weighted MC based on live prices
       let currentMC = 0;
-      tokens.forEach((token: any) => {
-        const tokenCurrentMC = currentPrices[token.address] || token.market_cap || 0;
+      tokensPurchased.forEach((token: any) => {
+        const tokenCurrentMC = currentPrices[token.mint] || 0;
         const weight = token.weight || 0;
         currentMC += (tokenCurrentMC * weight / 100);
       });
 
-      // Calculate performance as weighted average of individual token returns
+      // Calculate performance percentage
       let performancePercentage = 0;
-      tokens.forEach((token: any) => {
-        const tokenCurrentMC = currentPrices[token.address] || token.market_cap || 0;
-        const tokenListingMC = token.market_cap || 0;
-        const weight = token.weight || 0;
-        
-        if (tokenListingMC > 0 && tokenCurrentMC > 0) {
-          const tokenReturn = ((tokenCurrentMC - tokenListingMC) / tokenListingMC) * 100;
-          performancePercentage += (tokenReturn * weight / 100);
-        }
-      });
+      if (purchaseMC > 0 && currentMC > 0) {
+        performancePercentage = ((currentMC - purchaseMC) / purchaseMC) * 100;
+      }
 
-      // Total SOL invested in this ETF
-      const totalInvestedSOL = investmentsByEtf[row.etf_id] || parseFloat(row.current_value) || 0;
-      
-      // Calculate current value based on performance
-      const currentValueSOL = totalInvestedSOL * (1 + performancePercentage / 100);
-      
-      const unrealizedPnlSOL = currentValueSOL - totalInvestedSOL;
-
-      // Portfolio table: amount = tokens, current_value = invested SOL
-      const tokensHeld = parseFloat(row.amount || 0);
-      const positionInvestedSol = parseFloat(row.current_value || 0);
-      // Use the actual position's invested SOL if available, otherwise fall back to investments sum
-      const actualInvestedSOL = positionInvestedSol > 0 ? positionInvestedSol : totalInvestedSOL;
+      // Calculate current value in SOL based on performance
+      const currentValueSOL = solInvested * (1 + performancePercentage / 100);
+      const unrealizedPnlSOL = currentValueSOL - solInvested;
 
       return {
+        investmentId: row.id,
         etf: {
           id: row.etf_id,
-          name: row.name,
+          name: row.etf_name,
           creator: row.creator,
-          contract_address: row.contract_address,
-          market_cap_at_list: listedMC,
-          tokens: tokens,
-          token_hash: row.token_hash,
-          created_at: row.etf_created_at,
         },
-        position: {
-          user_id: row.user_id,
-          etf_id: row.etf_id,
-          amount: tokensHeld,
-          tokens_held: tokensHeld,
-          entry_price: listedMC,
-          current_value: currentValueSOL,
-          invested_sol: actualInvestedSOL,
-        },
-        tokens_held: tokensHeld,
-        current_value: currentValueSOL,
-        invested_sol: actualInvestedSOL,
-        unrealized_pnl: unrealizedPnlSOL,
-        performance_percentage: performancePercentage,
+        solInvested,
+        currentValue: currentValueSOL,
+        unrealizedPnl: unrealizedPnlSOL,
+        performancePercentage,
+        purchaseMC,
+        currentMC,
+        purchase24hChange: parseFloat(row.purchase_24h_change) || 0,
+        purchasedAt: row.created_at,
+        tokensPurchased: tokensPurchased.map((t: any) => ({
+          symbol: t.symbol,
+          mint: t.mint,
+          amount: t.amount,
+          weight: t.weight,
+        })),
       };
     });
 
     // Total portfolio value in SOL
-    const totalValueSOL = holdings.reduce((sum, h) => sum + h.current_value, 0);
-    const totalInvestedSOL = holdings.reduce((sum, h) => sum + h.invested_sol, 0);
-    const totalUnrealizedPnlSOL = holdings.reduce((sum, h) => sum + h.unrealized_pnl, 0);
+    const totalValueSOL = holdings.reduce((sum, h) => sum + h.currentValue, 0);
+    const totalInvestedSOL = holdings.reduce((sum, h) => sum + h.solInvested, 0);
+    const totalUnrealizedPnlSOL = holdings.reduce((sum, h) => sum + h.unrealizedPnl, 0);
 
-    // Get realized P/L from sell transactions
-    // Sum of pnl column if it exists, otherwise calculate from amount - fees for sells
-    const realizedResult = await pool.query(
-      `SELECT 
-         COALESCE(SUM(COALESCE(pnl, 0)), 0) as total_pnl,
-         COALESCE(SUM(CASE WHEN type = 'sell' THEN amount ELSE 0 END), 0) as total_sold,
-         COALESCE(SUM(CASE WHEN type = 'sell' THEN fees ELSE 0 END), 0) as total_sell_fees
-       FROM transactions
-       WHERE user_id = $1 AND type = 'sell' AND status = 'completed'`,
+    // Get realized P/L from sold investments
+    const soldInvestmentsResult = await pool.query(
+      `SELECT
+         COALESCE(SUM(sol_received), 0) as total_received,
+         COALESCE(SUM(sol_invested), 0) as total_invested_sold
+       FROM investments
+       WHERE user_id = $1 AND is_sold = TRUE`,
       [userId]
     );
 
-    const totalPnl = parseFloat(realizedResult.rows[0].total_pnl) || 0;
-    const totalSold = parseFloat(realizedResult.rows[0].total_sold) || 0;
-    const totalSellFees = parseFloat(realizedResult.rows[0].total_sell_fees) || 0;
-    
-    // If we have PnL recorded, use it. Otherwise, realized PnL is just -fees (since sells return at cost)
-    const realizedPnlSOL = totalPnl !== 0 ? totalPnl : -totalSellFees;
+    const totalReceived = parseFloat(soldInvestmentsResult.rows[0].total_received) || 0;
+    const totalInvestedSold = parseFloat(soldInvestmentsResult.rows[0].total_invested_sold) || 0;
+    const realizedPnlSOL = totalReceived - totalInvestedSold;
 
-    // Get transaction history
+    // Get recent transaction history
     const transactionsResult = await pool.query(
       `SELECT * FROM transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`,
       [userId]
@@ -230,7 +197,7 @@ export async function GET(request: NextRequest) {
       totalInvested: totalInvestedSOL,
       unrealizedPnl: totalUnrealizedPnlSOL,
       realizedPnl: realizedPnlSOL,
-      availableBalance: availableBalanceSOL,
+      protocolBalance,
       transactions,
     });
   } catch (error: any) {
@@ -243,7 +210,7 @@ export async function GET(request: NextRequest) {
       userId: userId || 'unknown',
     });
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to fetch portfolio',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       },

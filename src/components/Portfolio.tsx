@@ -25,9 +25,9 @@ export function Portfolio() {
           totalValue: 0,
           unrealizedPnl: 0,
           realizedPnl: 0,
-          availableBalance: 0,
+          protocolBalance: 0,
           realizedPnlHistory: [],
-        });
+        } as any);
         return;
       }
 
@@ -54,9 +54,9 @@ export function Portfolio() {
           totalValue: 0,
           unrealizedPnl: 0,
           realizedPnl: 0,
-          availableBalance: 0,
+          protocolBalance: 0,
           realizedPnlHistory: [],
-        });
+        } as any);
       } finally {
         setLoading(false);
       }
@@ -95,34 +95,22 @@ export function Portfolio() {
     }
   };
 
-  const handleSell = async (etfId: string, tokensHeld: number) => {
+  const handleSell = async (investmentId: string) => {
     if (!publicKey) return;
-    
-    const amount = sellAmount[etfId];
-    if (!amount || parseFloat(amount) <= 0) {
-      alert('Please enter a valid amount to sell');
-      return;
-    }
 
-    const sellTokens = parseFloat(amount);
-    if (sellTokens > tokensHeld) {
-      alert(`You can only sell up to ${tokensHeld.toFixed(4)} tokens`);
-      return;
-    }
+    setSellingEtfId(investmentId);
 
-    setSellingEtfId(etfId);
-    
     try {
-      const response = await apiPost<{ success: boolean; error?: string; newBalance?: number }>('/api/investments/sell', {
-        etfId,
-        tokensToSell: sellTokens,
+      const response = await apiPost<{ success: boolean; error?: string; newProtocolBalance?: number; realizedPnL?: number }>('/api/investments/sell', {
+        investmentId,
         userId: publicKey.toBase58(),
       });
 
       if (response.success) {
-        alert(`Successfully sold ${sellTokens.toFixed(4)} tokens! New balance: ${response.newBalance?.toFixed(4)} SOL`);
+        const pnl = response.realizedPnL || 0;
+        const pnlText = pnl >= 0 ? `+${pnl.toFixed(4)}` : pnl.toFixed(4);
+        alert(`Successfully sold entire ETF position!\nRealized P&L: ${pnlText} SOL\nNew protocol balance: ${response.newProtocolBalance?.toFixed(4)} SOL`);
         setShowSellModal(null);
-        setSellAmount({ ...sellAmount, [etfId]: '' });
         // Refresh portfolio
         await fetchPortfolioData();
       } else {
@@ -134,10 +122,6 @@ export function Portfolio() {
     } finally {
       setSellingEtfId(null);
     }
-  };
-
-  const handleSellAll = (etfId: string, tokensHeld: number) => {
-    setSellAmount({ ...sellAmount, [etfId]: tokensHeld.toString() });
   };
 
   return (
@@ -166,9 +150,9 @@ export function Portfolio() {
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-white/60 mb-2">AVAILABLE BALANCE</p>
+                  <p className="text-sm text-white/60 mb-2">PROTOCOL BALANCE</p>
                   <p className="text-2xl">
-                    {loading ? '...' : `${(portfolio?.availableBalance || 0).toFixed(4)} SOL`}
+                    {loading ? '...' : `${((portfolio as any)?.protocolBalance || 0).toFixed(4)} SOL`}
                   </p>
                 </div>
                 <div>
@@ -256,17 +240,17 @@ export function Portfolio() {
                     {filteredHoldings.map((holding, index) => {
                       // Get values from the API response
                       const holdingAny = holding as any;
-                      const invested = holdingAny.invested_sol || holding.position?.amount || 0;
-                      const currentVal = holding.current_value || 0;
-                      const pnl = holding.unrealized_pnl || 0;
-                      const perf = holding.performance_percentage || 0;
-                      const tokensHeld = holdingAny.tokens_held || holding.position?.amount || 0;
-                      const etfId = holding.etf?.id;
-                      
+                      const investmentId = holdingAny.investmentId;
+                      const invested = holdingAny.solInvested || 0;
+                      const currentVal = holdingAny.currentValue || 0;
+                      const pnl = holdingAny.unrealizedPnl || 0;
+                      const perf = holdingAny.performancePercentage || 0;
+                      const tokenCount = holdingAny.tokensPurchased?.length || 0;
+
                       return (
-                        <tr key={etfId || index} className="border-b border-white/5 hover:bg-white/5">
+                        <tr key={investmentId || index} className="border-b border-white/5 hover:bg-white/5">
                           <td className="px-6 py-4">{holding.etf?.name || 'Unknown ETF'}</td>
-                          <td className="px-6 py-4">{tokensHeld.toFixed(4)}</td>
+                          <td className="px-6 py-4">{tokenCount} tokens</td>
                           <td className="px-6 py-4">{invested.toFixed(4)} SOL</td>
                           <td className="px-6 py-4">{currentVal.toFixed(4)} SOL</td>
                           <td className={`px-6 py-4 ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -276,18 +260,18 @@ export function Portfolio() {
                             {perf >= 0 ? '+' : ''}{perf.toFixed(2)}%
                         </td>
                           <td className="px-6 py-4">
-                            {tokensHeld > 0 && etfId && (
+                            {investmentId && (
                               <button
-                                onClick={() => setShowSellModal(etfId)}
-                                disabled={sellingEtfId === etfId}
+                                onClick={() => setShowSellModal(investmentId)}
+                                disabled={sellingEtfId === investmentId}
                                 className="flex items-center gap-2 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-all disabled:opacity-50"
                               >
-                                {sellingEtfId === etfId ? (
+                                {sellingEtfId === investmentId ? (
                                   <Loader2 className="w-4 h-4 animate-spin" />
                                 ) : (
                                   <TrendingDown className="w-4 h-4" />
                                 )}
-                                Sell
+                                Sell All
                               </button>
                             )}
                         </td>
@@ -302,61 +286,55 @@ export function Portfolio() {
                   <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
                     <div className="bg-gray-900 border border-white/10 rounded-2xl p-8 max-w-md w-full mx-4">
                       {(() => {
-                        const holding = filteredHoldings.find(h => h.etf?.id === showSellModal);
+                        const holding = filteredHoldings.find((h: any) => h.investmentId === showSellModal);
                         const holdingAny = holding as any;
-                        const tokensHeld = holdingAny?.tokens_held || holding?.position?.amount || 0;
-                        const currentVal = holding?.current_value || 0;
+                        const currentVal = holdingAny?.currentValue || 0;
+                        const invested = holdingAny?.solInvested || 0;
+                        const pnl = holdingAny?.unrealizedPnl || 0;
                         const etfName = holding?.etf?.name || 'ETF';
-                        
+                        const tokensPurchased = holdingAny?.tokensPurchased || [];
+
                         return (
                           <>
-                            <h3 className="text-2xl font-bold mb-6">Sell {etfName}</h3>
-                            
+                            <h3 className="text-2xl font-bold mb-6">Sell Entire {etfName} Position</h3>
+
                             <div className="space-y-4 mb-6">
                               <div className="flex justify-between text-white/60">
-                                <span>Available to sell:</span>
-                                <span className="text-white">{tokensHeld.toFixed(4)} tokens</span>
+                                <span>Invested:</span>
+                                <span className="text-white">{invested.toFixed(4)} SOL</span>
                               </div>
                               <div className="flex justify-between text-white/60">
                                 <span>Current value:</span>
                                 <span className="text-white">{currentVal.toFixed(4)} SOL</span>
                               </div>
-                            </div>
-                            
-                            <div className="mb-6">
-                              <label className="block text-sm text-white/60 mb-2">Amount to sell</label>
-                              <div className="flex gap-2">
-                                <input
-                                  type="number"
-                                  value={sellAmount[showSellModal] || ''}
-                                  onChange={(e) => setSellAmount({ ...sellAmount, [showSellModal]: e.target.value })}
-                                  placeholder="0.0"
-                                  step="0.0001"
-                                  max={tokensHeld}
-                                  className="flex-1 px-4 py-3 rounded-xl bg-black/40 border border-white/10 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-red-500/50"
-                                />
-                                <button
-                                  onClick={() => handleSellAll(showSellModal, tokensHeld)}
-                                  className="px-4 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-sm transition-all"
-                                >
-                                  MAX
-                                </button>
+                              <div className="flex justify-between text-white/60">
+                                <span>Unrealized P&L:</span>
+                                <span className={pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                                  {pnl >= 0 ? '+' : ''}{pnl.toFixed(4)} SOL
+                                </span>
+                              </div>
+                              <div className="flex justify-between text-white/60">
+                                <span>Tokens to sell:</span>
+                                <span className="text-white">{tokensPurchased.length} tokens</span>
                               </div>
                             </div>
-                            
+
+                            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 mb-6">
+                              <p className="text-sm text-yellow-300">
+                                ⚠️ This will sell your entire ETF position. All {tokensPurchased.length} tokens will be swapped back to SOL.
+                              </p>
+                            </div>
+
                             <div className="flex gap-4">
                               <button
-                                onClick={() => {
-                                  setShowSellModal(null);
-                                  setSellAmount({ ...sellAmount, [showSellModal]: '' });
-                                }}
+                                onClick={() => setShowSellModal(null)}
                                 className="flex-1 px-4 py-3 bg-white/10 hover:bg-white/20 rounded-xl transition-all"
                               >
                                 Cancel
                               </button>
                               <button
-                                onClick={() => handleSell(showSellModal, tokensHeld)}
-                                disabled={sellingEtfId === showSellModal || !sellAmount[showSellModal]}
+                                onClick={() => handleSell(showSellModal)}
+                                disabled={sellingEtfId === showSellModal}
                                 className="flex-1 px-4 py-3 bg-red-500 hover:bg-red-600 rounded-xl font-medium transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                               >
                                 {sellingEtfId === showSellModal ? (
@@ -367,7 +345,7 @@ export function Portfolio() {
                                 ) : (
                                   <>
                                     <TrendingDown className="w-4 h-4" />
-                                    Confirm Sell
+                                    Sell Entire Position
                                   </>
                                 )}
                               </button>

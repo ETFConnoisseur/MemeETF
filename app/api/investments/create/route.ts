@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabasePool } from '@/lib/database/connection';
-import { decryptPrivateKey, getKeypairFromPrivateKey } from '@/lib/solana/wallet';
+import { decryptPrivateKey, getKeypairFromPrivateKey, getConnection } from '@/lib/solana/wallet';
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { getConnection, buyEtf, getEtfPda } from '@/lib/solana/program';
+import { swapForEtfPurchase } from '@/lib/solana/jupiterSwap';
 
+/**
+ * POST /api/investments/create
+ * Purchase an ETF using protocol wallet balance
+ * Executes real Jupiter swaps for each token in the ETF
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -21,176 +26,209 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Database not configured' }, { status: 503 });
     }
 
-    // Get ETF
-    const etfResult = await pool.query('SELECT * FROM etf_listings WHERE id = $1', [etfId]);
-    if (etfResult.rows.length === 0) {
-      return NextResponse.json({ error: 'ETF not found' }, { status: 404 });
-    }
-    const etf = etfResult.rows[0];
-
-    // Get ETF creator's wallet for the lister account (for fees)
-    const creatorWalletResult = await pool.query(
-      'SELECT public_key FROM wallets WHERE user_id = $1',
-      [etf.creator]
-    );
-    if (creatorWalletResult.rows.length === 0) {
-      return NextResponse.json({ error: 'ETF creator wallet not found' }, { status: 404 });
-    }
-    const listerPubkey = new PublicKey(creatorWalletResult.rows[0].public_key);
-
-    // Get user wallet
-    const walletResult = await pool.query(
-      'SELECT encrypted_private_key, public_key, sol_balance FROM wallets WHERE user_id = $1',
+    // Get user's protocol balance
+    const userResult = await pool.query(
+      'SELECT id, protocol_sol_balance, protocol_wallet_address FROM users WHERE id = $1',
       [userId]
     );
-    if (walletResult.rows.length === 0) {
-      return NextResponse.json({ error: 'Wallet not found' }, { status: 404 });
+
+    if (userResult.rows.length === 0) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    const { encrypted_private_key, sol_balance } = walletResult.rows[0];
-    const currentBalance = parseFloat(sol_balance);
+    const user = userResult.rows[0];
+    const protocolBalance = parseFloat(user.protocol_sol_balance);
 
-    if (currentBalance < solAmount) {
-      return NextResponse.json({ error: `Insufficient balance. Have ${currentBalance.toFixed(4)} SOL` }, { status: 400 });
-    }
-
-    // Get investor keypair
-        const privateKey = decryptPrivateKey(encrypted_private_key);
-    const investorKeypair = getKeypairFromPrivateKey(privateKey);
-    const connection = getConnection('devnet');
-    
-    // Verify on-chain balance
-    const onChainBalance = await connection.getBalance(investorKeypair.publicKey);
-    const requiredLamports = solAmount * LAMPORTS_PER_SOL + 10000; // extra for fees
-    
-    if (onChainBalance < requiredLamports) {
-      return NextResponse.json({ 
-        error: `Insufficient on-chain SOL. Have ${(onChainBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL, need ${(requiredLamports / LAMPORTS_PER_SOL).toFixed(4)} SOL` 
+    if (protocolBalance < solAmount) {
+      return NextResponse.json({
+        error: `Insufficient protocol balance. Have ${protocolBalance.toFixed(4)} SOL, need ${solAmount} SOL`
       }, { status: 400 });
     }
 
-    // Parse tokens from JSONB column
+    // Get ETF details
+    const etfResult = await pool.query(
+      'SELECT * FROM etf_listings WHERE id = $1',
+      [etfId]
+    );
+
+    if (etfResult.rows.length === 0) {
+      return NextResponse.json({ error: 'ETF not found' }, { status: 404 });
+    }
+
+    const etf = etfResult.rows[0];
     const tokens = typeof etf.tokens === 'string' ? JSON.parse(etf.tokens) : etf.tokens;
 
     if (!tokens || tokens.length === 0) {
       return NextResponse.json({ error: 'ETF has no tokens configured' }, { status: 400 });
     }
 
-    const tokenAddresses = tokens.map((t: any) => new PublicKey(t.address));
-    const tokenPercentages = tokens.map((t: any) => parseFloat(t.weight));
-
-    // Get ETF PDA
-    const [etfPda] = getEtfPda(listerPubkey);
-
-    console.log('[Investment] 🚀 Executing on-chain buy...');
-    console.log('[Investment] Investor:', investorKeypair.publicKey.toBase58());
-    console.log('[Investment] ETF PDA:', etfPda.toBase58());
-    console.log('[Investment] Lister:', listerPubkey.toBase58());
-    console.log('[Investment] Amount:', solAmount, 'SOL');
-    console.log('[Investment] Tokens:', tokenAddresses.map((t: PublicKey) => t.toBase58()));
-    console.log('[Investment] Percentages:', tokenPercentages);
-
-    // Execute on-chain buy with token swaps
-    const buyResult = await buyEtf(
-      connection,
-      investorKeypair,
-      etfPda,
-      listerPubkey,
-      solAmount,
-      tokenAddresses,
-      tokenPercentages
+    // Get protocol wallet keypair (for executing swaps)
+    const walletResult = await pool.query(
+      'SELECT encrypted_private_key FROM wallets WHERE user_id = $1',
+      [userId]
     );
 
-    console.log('[Investment] ✅ Main transaction confirmed:', buyResult.mainTxSignature);
-    console.log('[Investment] ✅ Swap transactions:', buyResult.swapSignatures);
-    console.log('[Investment] Token substitutions:', buyResult.tokenSubstitutions);
-
-    // Update database after successful on-chain transaction
-    const entryMarketCap = parseFloat(etf.market_cap_at_list);
-    const tokensReceived = (solAmount * 1_000_000_000) / (entryMarketCap || 1);
-    const totalFee = solAmount * 0.01;
-
-    // Get new on-chain balance
-    const newOnChainBalance = await connection.getBalance(investorKeypair.publicKey);
-    const newBalance = newOnChainBalance / LAMPORTS_PER_SOL;
-
-    // Update wallet balance in DB to match on-chain
-    await pool.query('UPDATE wallets SET sol_balance = $1 WHERE user_id = $2', [newBalance, userId]);
-
-    const investmentResult = await pool.query(
-      `INSERT INTO investments (user_id, etf_id, sol_amount, entry_market_cap, tokens_received)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [userId, etfId, solAmount, entryMarketCap, tokensReceived]
-    );
-
-    // Record main ETF buy transaction
-    await pool.query(
-      `INSERT INTO transactions (user_id, type, amount, fees, etf_id, tx_hash, status)
-       VALUES ($1, 'buy', $2, $3, $4, $5, 'completed')`,
-      [userId, solAmount, totalFee, etfId, buyResult.mainTxSignature]
-    );
-
-    // Record each token swap transaction
-    for (const swap of buyResult.tokenSubstitutions) {
-      if (swap.txSignature) {
-        await pool.query(
-          `INSERT INTO transactions (user_id, type, amount, fees, etf_id, tx_hash, status, metadata)
-           VALUES ($1, 'token_swap', $2, 0, $3, $4, 'completed', $5)`,
-          [
-            userId,
-            swap.solAmount,
-            etfId,
-            swap.txSignature,
-            JSON.stringify({
-              originalToken: swap.originalToken,
-              finalToken: swap.finalToken,
-              isSubstituted: swap.isSubstituted,
-              percentage: swap.percentage,
-            }),
-          ]
-        );
-      }
+    if (walletResult.rows.length === 0) {
+      return NextResponse.json({ error: 'Protocol wallet not found' }, { status: 404 });
     }
 
+    const privateKey = decryptPrivateKey(walletResult.rows[0].encrypted_private_key);
+    const protocolKeypair = getKeypairFromPrivateKey(privateKey);
+
+    // Calculate fees (0.5% to lister)
+    const listerFee = solAmount * 0.005;
+    const solAfterFees = solAmount - listerFee;
+
+    // Deduct from protocol balance immediately
     await pool.query(
-      `INSERT INTO portfolio (user_id, etf_id, amount, entry_price, current_value)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (user_id, etf_id) DO UPDATE SET 
-         amount = portfolio.amount + EXCLUDED.amount,
-         current_value = portfolio.current_value + EXCLUDED.current_value`,
-      [userId, etfId, tokensReceived, entryMarketCap, solAmount]
+      'UPDATE users SET protocol_sol_balance = protocol_sol_balance - $1 WHERE id = $2',
+      [solAmount, userId]
     );
 
-    // Record fees for the ETF creator (0.5% lister fee, 0.5% platform fee)
-    const listerFee = solAmount * 0.005; // 0.5%
-    const platformFee = solAmount * 0.005; // 0.5%
-    
-    console.log('[Investment] 💰 Recording fees...');
-    console.log('[Investment] ETF ID:', etfId);
-    console.log('[Investment] ETF Creator:', etf.creator);
-    console.log('[Investment] Lister Fee:', listerFee, 'SOL');
-    console.log('[Investment] Platform Fee:', platformFee, 'SOL');
-    
+    console.log('[Investment] 🚀 Starting ETF purchase...');
+    console.log('[Investment] User:', userId);
+    console.log('[Investment] ETF:', etf.name);
+    console.log('[Investment] Amount:', solAmount, 'SOL');
+    console.log('[Investment] Tokens:', tokens.length);
+
+    // Determine if devnet or mainnet
+    const connection = getConnection('devnet'); // TODO: Make this dynamic based on env
+    const isDevnet = true; // TODO: Detect from connection
+
+    // Execute Jupiter swaps for each token
+    const tokenMints = tokens.map((t: any) => new PublicKey(t.address));
+    const tokenWeights = tokens.map((t: any) => parseFloat(t.weight));
+
+    let swapResults;
+    try {
+      swapResults = await swapForEtfPurchase(
+        connection,
+        protocolKeypair,
+        tokenMints,
+        tokenWeights,
+        solAfterFees, // Swap the SOL after fees
+        isDevnet
+      );
+
+      console.log('[Investment] ✅ Swaps completed:', swapResults.length);
+    } catch (swapError: any) {
+      console.error('[Investment] ❌ Swap failed:', swapError);
+
+      // Refund to protocol balance if swap fails
+      await pool.query(
+        'UPDATE users SET protocol_sol_balance = protocol_sol_balance + $1 WHERE id = $2',
+        [solAmount, userId]
+      );
+
+      return NextResponse.json({
+        error: `Failed to execute swaps: ${swapError.message}`
+      }, { status: 500 });
+    }
+
+    // Calculate current and purchase market caps
+    const currentMC = tokens.reduce((sum: number, token: any) => {
+      return sum + (token.market_cap || 0) * (token.weight / 100);
+    }, 0);
+
+    const purchase24hChange = tokens.reduce((sum: number, token: any) => {
+      return sum + (token.price_change_24h || 0) * (token.weight / 100);
+    }, 0);
+
+    // Store investment record with actual swap data
+    const investmentResult = await pool.query(
+      `INSERT INTO investments (
+        user_id, etf_id, sol_amount, sol_invested, purchase_mc,
+        purchase_24h_change, tokens_purchased, entry_market_cap, is_sold
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE)
+      RETURNING *`,
+      [
+        userId,
+        etfId,
+        solAmount,
+        solAfterFees,
+        currentMC,
+        purchase24hChange,
+        JSON.stringify(swapResults.map((s, i) => ({
+          mint: tokens[i].address,
+          symbol: tokens[i].symbol,
+          amount: s.outputAmount,
+          weight: tokenWeights[i],
+        }))),
+        currentMC,
+      ]
+    );
+
+    const investmentId = investmentResult.rows[0].id;
+
+    // Record each individual swap
+    for (let i = 0; i < swapResults.length; i++) {
+      const swap = swapResults[i];
+      const token = tokens[i];
+
+      await pool.query(
+        `INSERT INTO investment_swaps (
+          investment_id, token_mint, token_symbol, token_name,
+          weight, sol_amount, token_amount, tx_signature,
+          swap_type, is_devnet_mock
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'buy', $9)`,
+        [
+          investmentId,
+          token.address,
+          token.symbol,
+          token.name,
+          tokenWeights[i],
+          swap.inputAmount,
+          swap.outputAmount,
+          swap.signature,
+          swap.isDevnetMock,
+        ]
+      );
+    }
+
+    // Update ETF stats
+    await pool.query(
+      `UPDATE etf_listings
+       SET total_volume = COALESCE(total_volume, 0) + $1,
+           total_investors = (
+             SELECT COUNT(DISTINCT user_id)
+             FROM investments
+             WHERE etf_id = $2
+           )
+       WHERE id = $2`,
+      [solAmount, etfId]
+    );
+
+    // Record lister fee
     await pool.query(
       `INSERT INTO fees (etf_id, lister_fee, platform_fee, paid_out)
-       VALUES ($1, $2, $3, FALSE)`,
-      [etfId, listerFee, platformFee]
+       VALUES ($1, $2, 0, FALSE)`,
+      [etfId, listerFee]
     );
-    
-    console.log('[Investment] ✅ Fees recorded successfully');
+
+    // Get updated protocol balance
+    const updatedUser = await pool.query(
+      'SELECT protocol_sol_balance FROM users WHERE id = $1',
+      [userId]
+    );
+
+    console.log('[Investment] ✅ Investment created successfully');
+    console.log('[Investment] Investment ID:', investmentId);
+    console.log('[Investment] Swaps:', swapResults.map(s => s.signature).filter(s => s !== 'FAILED'));
 
     return NextResponse.json({
       success: true,
       investment: investmentResult.rows[0],
-      txHash: buyResult.mainTxSignature,
-      swapSignatures: buyResult.swapSignatures,
-      tokenSubstitutions: buyResult.tokenSubstitutions,
-      newBalance: newBalance,
-      feesRecorded: { listerFee, platformFee },
+      swaps: swapResults,
+      newProtocolBalance: parseFloat(updatedUser.rows[0].protocol_sol_balance),
+      feesRecorded: { listerFee },
     });
-    
+
   } catch (error: any) {
     console.error('[Investment] ❌ Error:', error);
-    return NextResponse.json({ error: error.message || 'Failed to invest' }, { status: 500 });
+    return NextResponse.json({
+      error: error.message || 'Failed to create investment'
+    }, { status: 500 });
   }
 }

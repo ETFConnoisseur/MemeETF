@@ -1,16 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabasePool } from '@/lib/database/connection';
-import { decryptPrivateKey, getKeypairFromPrivateKey } from '@/lib/solana/wallet';
+import { decryptPrivateKey, getKeypairFromPrivateKey, getConnection } from '@/lib/solana/wallet';
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { getConnection, sellEtf, getEtfPda } from '@/lib/solana/program';
+import { swapSolToToken } from '@/lib/solana/jupiterSwap';
 
+/**
+ * POST /api/investments/sell
+ * Sell an ETF position - swaps all tokens back to SOL
+ * Returns SOL to protocol wallet balance
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { etfId, userId, tokensToSell } = body;
+    const { investmentId, userId } = body;
 
-    if (!etfId || !userId) {
-      return NextResponse.json({ error: 'ETF ID and user ID required' }, { status: 400 });
+    if (!investmentId || !userId) {
+      return NextResponse.json({ error: 'Investment ID and user ID required' }, { status: 400 });
     }
 
     const pool = getDatabasePool();
@@ -18,141 +23,172 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Database not configured' }, { status: 503 });
     }
 
-    // Get portfolio position
-    const portfolioResult = await pool.query(
-      'SELECT * FROM portfolio WHERE user_id = $1 AND etf_id = $2',
-      [userId, etfId]
+    // Get investment details
+    const investmentResult = await pool.query(
+      `SELECT i.*, e.name as etf_name
+       FROM investments i
+       JOIN etf_listings e ON i.etf_id = e.id
+       WHERE i.id = $1 AND i.user_id = $2 AND i.is_sold = FALSE`,
+      [investmentId, userId]
     );
-    if (portfolioResult.rows.length === 0) {
-      return NextResponse.json({ error: 'No position found' }, { status: 404 });
+
+    if (investmentResult.rows.length === 0) {
+      return NextResponse.json({
+        error: 'Investment not found or already sold'
+      }, { status: 404 });
     }
 
-    const position = portfolioResult.rows[0];
-    // Portfolio table uses: amount (tokens), current_value (invested SOL)
-    const tokensHeld = parseFloat(position.amount || 0);
-    const investedSol = parseFloat(position.current_value || 0);
-    const sellTokenAmount = tokensToSell || tokensHeld;
+    const investment = investmentResult.rows[0];
+    const tokensPurchased = JSON.parse(investment.tokens_purchased || '[]');
 
-    if (sellTokenAmount > tokensHeld) {
-      return NextResponse.json({ error: `Cannot sell more than you own. You have ${tokensHeld} tokens.` }, { status: 400 });
+    if (tokensPurchased.length === 0) {
+      return NextResponse.json({
+        error: 'No tokens found in this investment'
+      }, { status: 400 });
     }
 
-    if (sellTokenAmount <= 0) {
-      return NextResponse.json({ error: 'Invalid sell amount' }, { status: 400 });
-    }
-
-    // Get ETF
-    const etfResult = await pool.query('SELECT * FROM etf_listings WHERE id = $1', [etfId]);
-    if (etfResult.rows.length === 0) {
-      return NextResponse.json({ error: 'ETF not found' }, { status: 404 });
-    }
-    const etf = etfResult.rows[0];
-
-    // Get ETF creator's wallet for the lister account (for fees)
-    const creatorWalletResult = await pool.query(
-      'SELECT public_key FROM wallets WHERE user_id = $1',
-      [etf.creator]
-    );
-    if (creatorWalletResult.rows.length === 0) {
-      return NextResponse.json({ error: 'ETF creator wallet not found' }, { status: 404 });
-    }
-    const listerPubkey = new PublicKey(creatorWalletResult.rows[0].public_key);
-
-    // Get user wallet
+    // Get protocol wallet keypair
     const walletResult = await pool.query(
-      'SELECT encrypted_private_key, public_key, sol_balance FROM wallets WHERE user_id = $1',
+      'SELECT encrypted_private_key FROM wallets WHERE user_id = $1',
       [userId]
     );
+
     if (walletResult.rows.length === 0) {
-      return NextResponse.json({ error: 'Wallet not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Protocol wallet not found' }, { status: 404 });
     }
 
-    const { encrypted_private_key, sol_balance } = walletResult.rows[0];
-    const currentWalletBalance = parseFloat(sol_balance || 0);
-    const privateKey = decryptPrivateKey(encrypted_private_key);
-    const investorKeypair = getKeypairFromPrivateKey(privateKey);
+    const privateKey = decryptPrivateKey(walletResult.rows[0].encrypted_private_key);
+    const protocolKeypair = getKeypairFromPrivateKey(privateKey);
+
     const connection = getConnection('devnet');
+    const isDevnet = true; // TODO: Make dynamic
 
-    // Get ETF PDA
-    const creatorPubkey = new PublicKey(etf.creator);
-    const [etfPda] = getEtfPda(creatorPubkey);
+    console.log('[Sell] 🚀 Starting ETF sell...');
+    console.log('[Sell] Investment:', investmentId);
+    console.log('[Sell] ETF:', investment.etf_name);
+    console.log('[Sell] Tokens to sell:', tokensPurchased.length);
 
-    // Calculate returns for database tracking
-    // Token value = invested SOL proportionally
-    const proportionSold = sellTokenAmount / tokensHeld;
-    const solValueToReturn = investedSol * proportionSold;
-    const totalFee = solValueToReturn * 0.01; // 1% total fee
-    const netReturn = solValueToReturn - totalFee;
+    // Swap each token back to SOL
+    let totalSOLReceived = 0;
+    const sellSwaps = [];
 
-    console.log('[Sell] 🚀 Executing sell...');
-    console.log('[Sell] User:', userId);
-    console.log('[Sell] ETF:', etf.name);
-    console.log('[Sell] Tokens to sell:', sellTokenAmount, 'out of', tokensHeld);
-    console.log('[Sell] SOL value to return:', solValueToReturn);
-    console.log('[Sell] Net return after fees:', netReturn);
+    for (const token of tokensPurchased) {
+      try {
+        // For devnet mock, we'll just estimate the SOL value
+        // In production mainnet, this would execute real Jupiter swaps
+        if (isDevnet) {
+          // Mock: assume we get back the original SOL amount proportionally
+          const estimatedSOL = (token.weight / 100) * parseFloat(investment.sol_invested);
+          totalSOLReceived += estimatedSOL;
 
-    // For now, execute sell in database mode (smart contract sell may fail due to liquidity)
-    // In production, this would execute on-chain
-    const signature = `sell-${Date.now()}-${userId.slice(0, 8)}`;
+          sellSwaps.push({
+            tokenMint: token.mint,
+            tokenSymbol: token.symbol,
+            tokenAmount: token.amount,
+            solReceived: estimatedSOL,
+            signature: `DEVNET_SELL_MOCK_${Date.now()}_${sellSwaps.length}`,
+            isDevnetMock: true,
+          });
 
-    // Update wallet balance (add net return)
-    const newBalance = currentWalletBalance + netReturn;
+          console.log(`[Sell] ✅ Mock sold ${token.symbol}: ~${estimatedSOL.toFixed(4)} SOL`);
+        } else {
+          // TODO: Real Jupiter swap from token to SOL on mainnet
+          // This would use Jupiter to swap token -> USDC -> SOL
+          throw new Error('Mainnet token selling not yet implemented');
+        }
+      } catch (swapError: any) {
+        console.error(`[Sell] ❌ Failed to swap ${token.symbol}:`, swapError);
+        sellSwaps.push({
+          tokenMint: token.mint,
+          tokenSymbol: token.symbol,
+          tokenAmount: token.amount,
+          solReceived: 0,
+          signature: 'FAILED',
+          error: swapError.message,
+        });
+      }
+    }
+
+    // Calculate fees (0.5% to lister)
+    const listerFee = totalSOLReceived * 0.005;
+    const solAfterFees = totalSOLReceived - listerFee;
+
+    // Add SOL back to protocol balance
     await pool.query(
-      'UPDATE wallets SET sol_balance = $1 WHERE user_id = $2',
-      [newBalance, userId]
+      'UPDATE users SET protocol_sol_balance = protocol_sol_balance + $1 WHERE id = $2',
+      [solAfterFees, userId]
     );
 
-    console.log('[Sell] ✅ Updated wallet balance:', newBalance);
+    // Calculate current market cap for sell tracking
+    const currentMC = 0; // TODO: Fetch current MC from prices
 
-    // Calculate realized PnL (net return - cost basis)
-    // Since we're returning at cost (no market price changes in this model), PnL = -fees
-    const realizedPnl = netReturn - (investedSol * proportionSold);
-
-    // Record transaction with realized PnL
+    // Mark investment as sold
     await pool.query(
-      `INSERT INTO transactions (user_id, type, amount, fees, etf_id, tx_hash, status, pnl)
-       VALUES ($1, 'sell', $2, $3, $4, $5, 'completed', $6)`,
-      [userId, netReturn, totalFee, etfId, signature, realizedPnl]
+      `UPDATE investments
+       SET is_sold = TRUE,
+           sold_at = NOW(),
+           sol_received = $1,
+           sell_mc = $2
+       WHERE id = $3`,
+      [solAfterFees, currentMC, investmentId]
     );
 
-    // Record fees for the ETF creator (0.5% lister fee, 0.5% platform fee)
-    const listerFee = solValueToReturn * 0.005; // 0.5%
-    const platformFee = solValueToReturn * 0.005; // 0.5%
+    // Record sell swaps
+    for (const swap of sellSwaps) {
+      await pool.query(
+        `INSERT INTO investment_swaps (
+          investment_id, token_mint, token_symbol, token_name,
+          weight, sol_amount, token_amount, tx_signature,
+          swap_type, is_devnet_mock
+        )
+        VALUES ($1, $2, $3, $4, 0, $5, $6, $7, 'sell', $8)`,
+        [
+          investmentId,
+          swap.tokenMint,
+          swap.tokenSymbol,
+          swap.tokenSymbol,
+          swap.solReceived,
+          swap.tokenAmount,
+          swap.signature,
+          swap.isDevnetMock || false,
+        ]
+      );
+    }
+
+    // Record lister fee
     await pool.query(
       `INSERT INTO fees (etf_id, lister_fee, platform_fee, paid_out)
-       VALUES ($1, $2, $3, FALSE)`,
-      [etfId, listerFee, platformFee]
+       VALUES ($1, $2, 0, FALSE)`,
+      [investment.etf_id, listerFee]
     );
 
-    console.log('[Sell] 💰 Recorded fees - Lister:', listerFee, 'Platform:', platformFee);
+    // Get updated protocol balance
+    const updatedUser = await pool.query(
+      'SELECT protocol_sol_balance FROM users WHERE id = $1',
+      [userId]
+    );
 
-    // Update or delete portfolio position
-    if (sellTokenAmount >= tokensHeld) {
-      // Selling all - delete position
-      await pool.query('DELETE FROM portfolio WHERE user_id = $1 AND etf_id = $2', [userId, etfId]);
-      console.log('[Sell] Position closed completely');
-    } else {
-      // Partial sell - update position
-      const remainingTokens = tokensHeld - sellTokenAmount;
-      const remainingInvested = investedSol - solValueToReturn;
-      await pool.query(
-        'UPDATE portfolio SET amount = $3, current_value = $4 WHERE user_id = $1 AND etf_id = $2',
-        [userId, etfId, remainingTokens, remainingInvested]
-      );
-      console.log('[Sell] Position updated - Remaining tokens:', remainingTokens);
-    }
+    const realizedPnL = solAfterFees - parseFloat(investment.sol_invested);
+
+    console.log('[Sell] ✅ Investment sold successfully');
+    console.log('[Sell] Total SOL received:', totalSOLReceived.toFixed(4));
+    console.log('[Sell] After fees:', solAfterFees.toFixed(4));
+    console.log('[Sell] Realized P&L:', realizedPnL.toFixed(4), 'SOL');
 
     return NextResponse.json({
       success: true,
-      tokensSold: sellTokenAmount,
-      solReturned: netReturn,
-      fees: totalFee,
-      txHash: signature,
-      newBalance: newBalance,
+      totalSOLReceived,
+      solAfterFees,
+      fees: listerFee,
+      realizedPnL,
+      sellSwaps,
+      newProtocolBalance: parseFloat(updatedUser.rows[0].protocol_sol_balance),
     });
-    
+
   } catch (error: any) {
     console.error('[Sell] ❌ Error:', error);
-    return NextResponse.json({ error: error.message || 'Failed to sell' }, { status: 500 });
+    return NextResponse.json({
+      error: error.message || 'Failed to sell investment'
+    }, { status: 500 });
   }
 }
