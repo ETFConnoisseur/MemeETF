@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
 
     // Get user's protocol balance
     const userResult = await pool.query(
-      'SELECT protocol_sol_balance FROM users WHERE id = $1',
+      'SELECT protocol_sol_balance FROM users WHERE wallet_address = $1',
       [userId]
     );
     const protocolBalance = userResult.rows.length > 0

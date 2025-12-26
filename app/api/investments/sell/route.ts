@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
 
     // Add SOL back to protocol balance
     await pool.query(
-      'UPDATE users SET protocol_sol_balance = protocol_sol_balance + $1 WHERE id = $2',
+      'UPDATE users SET protocol_sol_balance = protocol_sol_balance + $1 WHERE wallet_address = $2',
       [solAfterFees, userId]
     );
 
@@ -164,7 +164,7 @@ export async function POST(request: NextRequest) {
 
     // Get updated protocol balance
     const updatedUser = await pool.query(
-      'SELECT protocol_sol_balance FROM users WHERE id = $1',
+      'SELECT protocol_sol_balance FROM users WHERE wallet_address = $1',
       [userId]
     );
 

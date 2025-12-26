@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
 
     // Get user's protocol balance
     const userResult = await pool.query(
-      'SELECT id, protocol_sol_balance, protocol_wallet_address FROM users WHERE id = $1',
+      'SELECT wallet_address, protocol_sol_balance, protocol_wallet_address FROM users WHERE wallet_address = $1',
       [userId]
     );
 
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
 
     // Deduct from protocol balance first
     await pool.query(
-      'UPDATE users SET protocol_sol_balance = protocol_sol_balance - $1 WHERE id = $2',
+      'UPDATE users SET protocol_sol_balance = protocol_sol_balance - $1 WHERE wallet_address = $2',
       [amount, userId]
     );
 
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
 
       // Refund protocol balance if transaction fails
       await pool.query(
-        'UPDATE users SET protocol_sol_balance = protocol_sol_balance + $1 WHERE id = $2',
+        'UPDATE users SET protocol_sol_balance = protocol_sol_balance + $1 WHERE wallet_address = $2',
         [amount, userId]
       );
 

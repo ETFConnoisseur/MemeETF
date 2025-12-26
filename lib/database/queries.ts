@@ -128,41 +128,110 @@ export async function createWallet(
   };
 }
 
+// =============================================================================
+// PROTOCOL BALANCE QUERIES (Use these for custodial balance operations)
+// =============================================================================
+
+export async function getProtocolBalance(walletAddress: string): Promise<number> {
+  const pool = getDatabasePool();
+  if (!pool) return 0;
+
+  const result = await pool.query(
+    'SELECT protocol_sol_balance FROM users WHERE wallet_address = $1',
+    [walletAddress]
+  );
+
+  return result.rows.length > 0 ? parseFloat(result.rows[0].protocol_sol_balance || 0) : 0;
+}
+
+export async function updateProtocolBalance(walletAddress: string, newBalance: number): Promise<void> {
+  const pool = getDatabasePool();
+  if (!pool) return;
+
+  await pool.query(
+    'UPDATE users SET protocol_sol_balance = $2 WHERE wallet_address = $1',
+    [walletAddress, newBalance]
+  );
+}
+
+export async function incrementProtocolBalance(walletAddress: string, amount: number): Promise<number> {
+  const pool = getDatabasePool();
+  if (!pool) return 0;
+
+  const result = await pool.query(
+    `UPDATE users SET protocol_sol_balance = protocol_sol_balance + $2
+     WHERE wallet_address = $1
+     RETURNING protocol_sol_balance`,
+    [walletAddress, amount]
+  );
+
+  return result.rows.length > 0 ? parseFloat(result.rows[0].protocol_sol_balance || 0) : 0;
+}
+
+export async function decrementProtocolBalance(walletAddress: string, amount: number): Promise<number> {
+  const pool = getDatabasePool();
+  if (!pool) return 0;
+
+  const result = await pool.query(
+    `UPDATE users SET protocol_sol_balance = protocol_sol_balance - $2
+     WHERE wallet_address = $1 AND protocol_sol_balance >= $2
+     RETURNING protocol_sol_balance`,
+    [walletAddress, amount]
+  );
+
+  return result.rows.length > 0 ? parseFloat(result.rows[0].protocol_sol_balance || 0) : 0;
+}
+
+// =============================================================================
+// DEPRECATED WALLET BALANCE QUERIES (DO NOT USE - Use protocol balance instead)
+// =============================================================================
+// These functions operate on the deprecated wallets.sol_balance field
+// Use the protocol balance functions above instead
+
+/**
+ * @deprecated Use updateProtocolBalance instead
+ */
 export async function updateWalletBalance(userId: string, newBalance: number): Promise<void> {
   const pool = getDatabasePool();
   if (!pool) return;
-  
+
   await pool.query(
     `UPDATE wallets SET sol_balance = $2, updated_at = CURRENT_TIMESTAMP WHERE user_id = $1`,
     [userId, newBalance]
   );
 }
 
+/**
+ * @deprecated Use incrementProtocolBalance instead
+ */
 export async function incrementWalletBalance(userId: string, amount: number): Promise<number> {
   const pool = getDatabasePool();
   if (!pool) return 0;
-  
+
   const result = await pool.query(
     `UPDATE wallets SET sol_balance = sol_balance + $2, updated_at = CURRENT_TIMESTAMP
      WHERE user_id = $1
      RETURNING sol_balance`,
     [userId, amount]
   );
-  
+
   return result.rows.length > 0 ? parseFloat(result.rows[0].sol_balance) : 0;
 }
 
+/**
+ * @deprecated Use decrementProtocolBalance instead
+ */
 export async function decrementWalletBalance(userId: string, amount: number): Promise<number> {
   const pool = getDatabasePool();
   if (!pool) return 0;
-  
+
   const result = await pool.query(
     `UPDATE wallets SET sol_balance = sol_balance - $2, updated_at = CURRENT_TIMESTAMP
      WHERE user_id = $1 AND sol_balance >= $2
      RETURNING sol_balance`,
     [userId, amount]
   );
-  
+
   return result.rows.length > 0 ? parseFloat(result.rows[0].sol_balance) : 0;
 }
 
