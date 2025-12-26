@@ -216,7 +216,7 @@ export function Listings({ onNavigate }: ListingsProps) {
       {/* Hero Section */}
       <div className="text-center mb-12 space-y-3">
         <h1 className="text-5xl tracking-tight">ETF Listings</h1>
-        <p className="text-white/60 text-lg">Browse all available token ETFs</p>
+        <p className="text-white text-lg">Browse all available token ETFs</p>
       </div>
 
       {/* Search and Filter Section */}
@@ -322,11 +322,11 @@ export function Listings({ onNavigate }: ListingsProps) {
                 {/* Stats */}
                 <div className="grid grid-cols-2 gap-3 mb-4">
                   <div className="rounded-lg border border-white/10 p-3">
-                    <p className="text-xs text-white/50 mb-1">Current MC</p>
+                    <p className="text-xs text-white mb-1">Current MC</p>
                     <p className="text-white font-medium">{formatMarketCap(currentMC)}</p>
                   </div>
                   <div className="rounded-lg border border-white/10 p-3">
-                    <p className="text-xs text-white/50 mb-1">Since Listing</p>
+                    <p className="text-xs text-white mb-1">Since Listing</p>
                     <p className={`font-medium ${returnSinceListing >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                       {returnSinceListing >= 0 ? '+' : ''}{returnSinceListing.toFixed(1)}%
                     </p>
@@ -335,7 +335,7 @@ export function Listings({ onNavigate }: ListingsProps) {
 
                 {/* Token List */}
                 <div className="border-t border-white/10 pt-4">
-                  <p className="text-xs text-white/50 mb-3">Tokens ({etf.tokens.length})</p>
+                  <p className="text-xs text-white mb-3">Tokens ({etf.tokens.length})</p>
                   <div className="flex flex-wrap gap-2">
                     {etf.tokens.map((token, idx) => (
                       <div 
@@ -356,8 +356,8 @@ export function Listings({ onNavigate }: ListingsProps) {
 
                 {/* Creator */}
                 <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between text-xs">
-                  <span className="text-white/40">By {etf.creator.slice(0, 4)}...{etf.creator.slice(-4)}</span>
-                  <span className="text-white/40">{new Date(etf.created_at).toLocaleDateString()}</span>
+                  <span className="text-white/60">By {etf.creator.slice(0, 4)}...{etf.creator.slice(-4)}</span>
+                  <span className="text-white/60">{new Date(etf.created_at).toLocaleDateString()}</span>
                 </div>
               </div>
             );

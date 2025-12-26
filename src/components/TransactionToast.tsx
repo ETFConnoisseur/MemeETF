@@ -70,7 +70,7 @@ export function TransactionToast({ toast, onClose }: TransactionToastProps) {
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <p className="text-white/60 text-sm">{toast.message}</p>
+            <p className="text-white text-sm">{toast.message}</p>
 
             {/* Main Transaction Link */}
             {toast.txSignature && toast.status === 'success' && (
@@ -90,7 +90,7 @@ export function TransactionToast({ toast, onClose }: TransactionToastProps) {
               <div className="mt-3">
                 <button
                   onClick={() => setIsExpanded(!isExpanded)}
-                  className="text-xs text-white/60 hover:text-white/80 transition-colors"
+                  className="text-xs text-white hover:text-white/80 transition-colors"
                 >
                   {isExpanded ? '▼' : '▶'} {toast.swapSignatures.length} Token Swap
                   {toast.swapSignatures.length > 1 ? 's' : ''}
@@ -101,7 +101,7 @@ export function TransactionToast({ toast, onClose }: TransactionToastProps) {
                     {toast.tokenSubstitutions.map((swap, idx) => (
                       <div key={idx} className="text-xs">
                         <div className="flex items-center justify-between">
-                          <div className="text-white/80">
+                          <div className="text-white">
                             {swap.isSubstituted && (
                               <span className="text-yellow-400 mr-1">⚠️ Substituted:</span>
                             )}
@@ -109,7 +109,7 @@ export function TransactionToast({ toast, onClose }: TransactionToastProps) {
                           </div>
                         </div>
                         {swap.isSubstituted && (
-                          <div className="text-white/40 mt-1">
+                          <div className="text-white/60 mt-1">
                             Original: {swap.originalToken.slice(0, 8)}...
                             <br />
                             Used: USDC ({swap.actualToken.slice(0, 8)}...)

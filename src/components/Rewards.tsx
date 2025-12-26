@@ -119,7 +119,7 @@ export function Rewards() {
               <div className="flex items-center justify-center gap-2">
                 <h2 className="text-2xl">Claim Rewards</h2>
               </div>
-              <p className="text-sm text-white/60">TOTAL CLAIMABLE</p>
+              <p className="text-sm text-white">TOTAL CLAIMABLE</p>
 
               {/* Glowing Circle */}
               <div className="relative flex items-center justify-center">
@@ -141,7 +141,7 @@ export function Rewards() {
                 </div>
               </div>
 
-              <p className="text-lg text-white/80">SOL</p>
+              <p className="text-lg text-white">SOL</p>
 
               <button 
                 onClick={handleClaim}
@@ -196,7 +196,7 @@ export function Rewards() {
               </div>
 
               <div className="pt-4 border-t border-white/10">
-                <p className="text-sm text-white/60 mb-3">Total Claimed</p>
+                <p className="text-sm text-white mb-3">Total Claimed</p>
                 <p className="text-2xl text-emerald-400">
                   {loading ? '...' : `${(rewards?.total_claimed || 0).toFixed(3)} SOL`}
                 </p>
@@ -208,11 +208,11 @@ export function Rewards() {
           <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-8 transition-all duration-300 hover:border-white/20">
             <div className="flex items-center gap-2 mb-6">
               <h3 className="text-xl">Rewards History</h3>
-              <span className="text-sm text-white/40">({rewards.history?.length || 0})</span>
+              <span className="text-sm text-white/60">({rewards.history?.length || 0})</span>
             </div>
 
             <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-4 text-sm text-white/60 uppercase tracking-wider pb-2 border-b border-white/10">
+              <div className="grid grid-cols-3 gap-4 text-sm text-white uppercase tracking-wider pb-2 border-b border-white/10">
                 <div>Date</div>
                 <div>Type</div>
                 <div className="text-right">Amount</div>
@@ -236,7 +236,7 @@ export function Rewards() {
                   {rewards.history.map((item, index) => (
                     <div key={index} className="grid grid-cols-3 gap-4 py-3 border-b border-white/5">
                       <div className="text-sm">{item?.date ? new Date(item.date).toLocaleDateString() : '-'}</div>
-                      <div className="text-sm text-white/80">{item?.type || '-'}</div>
+                      <div className="text-sm text-white">{item?.type || '-'}</div>
                       <div className="text-sm text-right text-emerald-400">+{(item?.amount ?? 0).toFixed(3)} SOL</div>
                     </div>
                   ))}

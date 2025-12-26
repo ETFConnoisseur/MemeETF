@@ -261,7 +261,7 @@ export function Settings() {
           <h1 className="text-5xl tracking-tight">Settings</h1>
           <SettingsIcon className="w-10 h-10 text-white/60" />
         </div>
-        <p className="text-white/60 text-lg">Manage your account and preferences</p>
+        <p className="text-white text-lg">Manage your account and preferences</p>
       </div>
 
       {/* Error/Success Messages */}
@@ -292,7 +292,7 @@ export function Settings() {
             <div className="space-y-4">
               <div className="flex items-center justify-between p-5 rounded-xl border border-white/10">
                 <div className="space-y-1">
-                  <p className="text-sm text-white/60">Connected Wallet</p>
+                  <p className="text-sm text-white">Connected Wallet</p>
                   <p className="text-lg">{publicKey ? truncateAddress(publicKey.toBase58()) : 'Not connected'}</p>
                 </div>
                 <button 
@@ -303,10 +303,10 @@ export function Settings() {
                   Disconnect
                 </button>
               </div>
-              
+
               <div className="flex items-center justify-between p-5 rounded-xl border border-white/10">
                 <div className="space-y-1">
-                  <p className="text-sm text-white/60">Wallet Balance (Devnet)</p>
+                  <p className="text-sm text-white">Wallet Balance (Devnet)</p>
                   <p className="text-lg">
                     {loading ? 'Loading...' : balance !== null ? `${balance.toFixed(4)} SOL` : 'N/A'}
                   </p>
@@ -335,7 +335,7 @@ export function Settings() {
               <div className="flex items-center justify-between p-5 rounded-xl border border-white/10">
                 <div className="flex-1">
                   <p className="text-lg">X (Twitter) Account</p>
-                  <p className="text-sm text-white/60 mt-1">
+                  <p className="text-sm text-white mt-1">
                     {isXConnected ? (
                       <>Connected as <span className="text-white">@{xUsername}</span></>
                     ) : (
@@ -364,8 +364,8 @@ export function Settings() {
                   </button>
                 )}
               </div>
-              
-              <p className="text-xs text-white/40 px-2">
+
+              <p className="text-xs text-white/60 px-2">
                 Connecting your X account allows you to appear on leaderboards and share your ETF performance.
               </p>
             </div>
@@ -382,7 +382,7 @@ export function Settings() {
               <div className="flex items-center justify-between p-5 rounded-xl border border-red-500/20">
                 <div className="flex-1">
                   <p className="text-lg text-white">Permanently Delete Account</p>
-                  <p className="text-sm text-white/60 mt-1">
+                  <p className="text-sm text-white mt-1">
                     This action cannot be undone. All your data will be permanently deleted.
                   </p>
                 </div>

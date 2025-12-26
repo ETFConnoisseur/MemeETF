@@ -147,25 +147,25 @@ export function Portfolio() {
               <h2 className="text-xl mb-8">Portfolio</h2>
               <div className="grid grid-cols-2 gap-8">
                 <div>
-                  <p className="text-sm text-white/60 mb-2">PORTFOLIO VALUE</p>
+                  <p className="text-sm text-white mb-2">PORTFOLIO VALUE</p>
                   <p className="text-2xl">
                     {loading ? '...' : `${(portfolio?.totalValue || 0).toFixed(4)} SOL`}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-white/60 mb-2">PROTOCOL BALANCE</p>
+                  <p className="text-sm text-white mb-2">PROTOCOL BALANCE</p>
                   <p className="text-2xl">
                     {loading ? '...' : `${((portfolio as any)?.protocolBalance || 0).toFixed(4)} SOL`}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-white/60 mb-2">TOTAL INVESTED</p>
+                  <p className="text-sm text-white mb-2">TOTAL INVESTED</p>
                   <p className="text-2xl text-white/80">
                     {loading ? '...' : `${((portfolio as any)?.totalInvested || 0).toFixed(4)} SOL`}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-white/60 mb-2">UNREALIZED PNL</p>
+                  <p className="text-sm text-white mb-2">UNREALIZED PNL</p>
                   <p className={`text-2xl ${(portfolio?.unrealizedPnl || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                     {loading ? '...' : `${(portfolio?.unrealizedPnl || 0) >= 0 ? '+' : ''}${(portfolio?.unrealizedPnl || 0).toFixed(4)} SOL`}
                   </p>
@@ -179,7 +179,7 @@ export function Portfolio() {
               <p className={`text-4xl mb-6 ${(portfolio?.realizedPnl || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                 {loading ? '...' : `${(portfolio?.realizedPnl || 0) >= 0 ? '+' : ''}${(portfolio?.realizedPnl || 0).toFixed(4)} SOL`}
               </p>
-              <p className="text-sm text-white/40">
+              <p className="text-sm text-white/60">
                 From closed positions
               </p>
             </div>
@@ -230,13 +230,13 @@ export function Portfolio() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-white/10">
-                      <th className="text-left text-sm text-white/60 uppercase tracking-wider px-6 py-4">ETF Name</th>
-                      <th className="text-left text-sm text-white/60 uppercase tracking-wider px-6 py-4">Tokens</th>
-                      <th className="text-left text-sm text-white/60 uppercase tracking-wider px-6 py-4">Invested</th>
-                      <th className="text-left text-sm text-white/60 uppercase tracking-wider px-6 py-4">Current Value</th>
-                      <th className="text-left text-sm text-white/60 uppercase tracking-wider px-6 py-4">PNL</th>
-                      <th className="text-left text-sm text-white/60 uppercase tracking-wider px-6 py-4">Return</th>
-                      <th className="text-left text-sm text-white/60 uppercase tracking-wider px-6 py-4">Action</th>
+                      <th className="text-left text-sm text-white uppercase tracking-wider px-6 py-4">ETF Name</th>
+                      <th className="text-left text-sm text-white uppercase tracking-wider px-6 py-4">Tokens</th>
+                      <th className="text-left text-sm text-white uppercase tracking-wider px-6 py-4">Invested</th>
+                      <th className="text-left text-sm text-white uppercase tracking-wider px-6 py-4">Current Value</th>
+                      <th className="text-left text-sm text-white uppercase tracking-wider px-6 py-4">PNL</th>
+                      <th className="text-left text-sm text-white uppercase tracking-wider px-6 py-4">Return</th>
+                      <th className="text-left text-sm text-white uppercase tracking-wider px-6 py-4">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -302,21 +302,21 @@ export function Portfolio() {
                             <h3 className="text-2xl font-bold mb-6">Sell Entire {etfName} Position</h3>
 
                             <div className="space-y-4 mb-6">
-                              <div className="flex justify-between text-white/60">
+                              <div className="flex justify-between text-white">
                                 <span>Invested:</span>
                                 <span className="text-white">{invested.toFixed(4)} SOL</span>
                               </div>
-                              <div className="flex justify-between text-white/60">
+                              <div className="flex justify-between text-white">
                                 <span>Current value:</span>
                                 <span className="text-white">{currentVal.toFixed(4)} SOL</span>
                               </div>
-                              <div className="flex justify-between text-white/60">
+                              <div className="flex justify-between text-white">
                                 <span>Unrealized P&L:</span>
                                 <span className={pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}>
                                   {pnl >= 0 ? '+' : ''}{pnl.toFixed(4)} SOL
                                 </span>
                               </div>
-                              <div className="flex justify-between text-white/60">
+                              <div className="flex justify-between text-white">
                                 <span>Tokens to sell:</span>
                                 <span className="text-white">{tokensPurchased.length} tokens</span>
                               </div>

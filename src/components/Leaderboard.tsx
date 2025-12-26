@@ -52,7 +52,7 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
           <h1 className="text-5xl tracking-tight">Leaderboard</h1>
           <Trophy className="w-10 h-10 text-yellow-500" />
         </div>
-        <p className="text-white/60 text-lg">Top performing ETFs and Creators</p>
+        <p className="text-white text-lg">Top performing ETFs and Creators</p>
       </div>
 
       {/* Top 3 Podium */}

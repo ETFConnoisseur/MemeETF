@@ -150,7 +150,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       {/* Hero Section */}
       <div className="text-center mb-12 space-y-3">
         <h1 className="text-5xl tracking-tight">Dashboard</h1>
-        <p className="text-white/60 text-lg">
+        <p className="text-white text-lg">
           Discover and invest in custom Solana token ETFs
         </p>
       </div>
@@ -158,15 +158,15 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       {/* Stats Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
         <div className="rounded-xl border border-white/10 backdrop-blur-sm p-6">
-          <p className="text-sm text-white/60 mb-2">Total ETFs</p>
+          <p className="text-sm text-white mb-2">Total ETFs</p>
           <p className="text-3xl">{loading ? '...' : stats.totalETFs}</p>
         </div>
         <div className="rounded-xl border border-white/10 backdrop-blur-sm p-6">
-          <p className="text-sm text-white/60 mb-2">Total Volume</p>
+          <p className="text-sm text-white mb-2">Total Volume</p>
           <p className="text-3xl">{loading ? '...' : formatMarketCap(stats.totalVolume)}</p>
         </div>
         <div className="rounded-xl border border-white/10 backdrop-blur-sm p-6">
-          <p className="text-sm text-white/60 mb-2">Active Traders</p>
+          <p className="text-sm text-white mb-2">Active Traders</p>
           <p className="text-3xl">{loading ? '...' : stats.activeTraders}</p>
         </div>
       </div>
@@ -227,7 +227,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
                       {return24h >= 0 ? '+' : ''}{return24h.toFixed(1)}%
                     </div>
                   </div>
-                  <p className="text-sm text-white/60 mb-4">
+                  <p className="text-sm text-white mb-4">
                     Market Cap: {formatMarketCap(etf.market_cap_at_list)}
                   </p>
                   <div className="flex flex-wrap gap-2">
@@ -288,10 +288,10 @@ export function Dashboard({ onNavigate }: DashboardProps) {
                       {return24h >= 0 ? '+' : ''}{return24h.toFixed(1)}%
                     </span>
                   </div>
-                  <p className="text-sm text-white/60 mb-3">
+                  <p className="text-sm text-white mb-3">
                     {formatMarketCap(etf.market_cap_at_list)}
                   </p>
-                  <div className="flex items-center gap-2 text-xs text-white/40">
+                  <div className="flex items-center gap-2 text-xs text-white/60">
                     <span>{etf.tokens.length} tokens</span>
                     <span>•</span>
                     <span>{etf.creator.slice(0, 4)}...{etf.creator.slice(-4)}</span>
@@ -308,7 +308,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="space-y-2 text-center md:text-left">
             <h2 className="text-2xl">Ready to create your own ETF?</h2>
-            <p className="text-white/60">
+            <p className="text-white">
               List your custom token basket and start earning fees
             </p>
           </div>

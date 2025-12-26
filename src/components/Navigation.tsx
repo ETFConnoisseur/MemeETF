@@ -54,21 +54,21 @@ export function Navigation({ activeTab, onTabChange }: NavigationProps) {
               <>
                 <button
                   onClick={() => setIsWalletModalOpen(true)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 transition-all text-white font-medium shadow-lg hover:shadow-purple-500/50"
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-black border border-white/10 hover:bg-white/5 transition-all text-white font-medium"
                 >
                   <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
                   <span className="text-sm">{truncateAddress(publicKey.toBase58())}</span>
                 </button>
               </>
             ) : (
-              <WalletMultiButton className="!bg-gradient-to-r !from-purple-600 !to-blue-600 hover:!from-purple-700 hover:!to-blue-700 !border-0 !transition-all !text-sm !px-6 !py-2 !rounded-lg !text-white !font-medium !shadow-lg hover:!shadow-purple-500/50" />
+              <WalletMultiButton className="!bg-black !border !border-white/10 hover:!bg-white/5 !transition-all !text-sm !px-6 !py-2 !rounded-lg !text-white !font-medium" />
             )}
             <button
               onClick={() => onTabChange('settings')}
-              className={`px-4 py-2 rounded-lg transition-all ${
+              className={`px-4 py-2 rounded-lg border border-white/10 transition-all ${
                 activeTab === 'settings'
                   ? 'text-white bg-white/10'
-                  : 'text-white/60 hover:text-white/80 hover:bg-white/5'
+                  : 'text-white hover:bg-white/5'
               }`}
             >
               Settings

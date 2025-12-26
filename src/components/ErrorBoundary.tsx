@@ -34,7 +34,7 @@ export class ErrorBoundary extends Component<Props, State> {
         <div className="min-h-[400px] flex items-center justify-center">
           <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-8 max-w-md text-center">
             <h2 className="text-xl text-red-400 mb-4">Something went wrong</h2>
-            <p className="text-white/60 mb-6 text-sm">
+            <p className="text-white mb-6 text-sm">
               {this.state.error?.message || 'An unexpected error occurred'}
             </p>
             <button

@@ -62,7 +62,7 @@ export default function App() {
         <div className="max-w-xl mx-auto px-6 py-12 text-center">
           <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-8">
             <h2 className="text-xl text-red-400 mb-4">Something went wrong</h2>
-            <p className="text-white/60 mb-6">Failed to load this page</p>
+            <p className="text-white mb-6">Failed to load this page</p>
             <button 
               onClick={() => handleNavigate('dashboard')}
               className="px-6 py-2 rounded-lg bg-white/10 hover:bg-white/20"

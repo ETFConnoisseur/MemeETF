@@ -379,7 +379,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
             
             {/* Creator Info */}
             <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-white/60">
+            <div className="flex items-center gap-2 text-white">
               <User className="w-4 h-4" />
               <span>Created by</span>
               <button
@@ -405,7 +405,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
             </div>
 
             {/* Contract Address */}
-            <div className="flex items-center gap-2 text-white/60">
+            <div className="flex items-center gap-2 text-white">
               <span className="text-sm">Contract:</span>
               <button
                 onClick={() => copyToClipboard(etf.contract_address, 'contract')}
@@ -432,7 +432,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
               <RefreshCw className="w-4 h-4 animate-spin" style={{ animationDuration: '3s' }} />
               <span className="text-sm font-medium">LIVE</span>
               {lastUpdated && (
-                <span className="text-xs text-white/40">
+                <span className="text-xs text-white/60">
                   Updated {lastUpdated.toLocaleTimeString()}
                 </span>
               )}
@@ -440,15 +440,15 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
             
             <div className="grid grid-cols-2 gap-4">
               <div className="rounded-xl border border-white/10 p-4 text-center">
-                <p className="text-xs text-white/60 mb-1">Listed MC</p>
+                <p className="text-xs text-white mb-1">Listed MC</p>
                 <p className="text-xl">{formatMarketCap(listedTotalMC)}</p>
               </div>
               <div className="rounded-xl border border-emerald-500/30 p-4 text-center">
-                <p className="text-xs text-white/60 mb-1">Current MC</p>
+                <p className="text-xs text-white mb-1">Current MC</p>
                 <p className="text-xl">{formatMarketCap(currentTotalMC)}</p>
               </div>
               <div className="rounded-xl border border-white/10 p-4 text-center">
-                <p className="text-xs text-white/60 mb-1">24h Performance</p>
+                <p className="text-xs text-white mb-1">24h Performance</p>
                 <div className={`text-2xl flex items-center justify-center gap-2 ${
                   return24h >= 0 ? 'text-emerald-400' : 'text-red-400'
                 }`}>
@@ -461,7 +461,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
                 </div>
               </div>
               <div className="rounded-xl border border-white/10 p-4 text-center">
-                <p className="text-xs text-white/60 mb-1">Since Listing</p>
+                <p className="text-xs text-white mb-1">Since Listing</p>
                 <div className={`text-2xl flex items-center justify-center gap-2 ${
                   returnSinceListing >= 0 ? 'text-emerald-400' : 'text-red-400'
                 }`}>
@@ -505,7 +505,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
                       <div>
                         <h3 className="font-medium text-white">{token.name || token.symbol}</h3>
                         <div className="flex items-center gap-2">
-                          <span className="text-sm text-white/60">{token.symbol}</span>
+                          <span className="text-sm text-white">{token.symbol}</span>
                           <span className="text-xs px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
                             {token.weight.toFixed(1)}%
                           </span>
@@ -517,13 +517,13 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
                       <p className="text-white font-medium">{formatMarketCap(token.current_market_cap)}</p>
                       <div className="flex items-center justify-end gap-3">
                         <div className="text-right">
-                          <p className="text-[10px] text-white/40 uppercase">24h</p>
+                          <p className="text-[10px] text-white/60 uppercase">24h</p>
                           <p className={`text-sm font-medium ${token.price_change_24h >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                             {token.price_change_24h >= 0 ? '+' : ''}{token.price_change_24h.toFixed(1)}%
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-[10px] text-white/40 uppercase">Listing</p>
+                          <p className="text-[10px] text-white/60 uppercase">Listing</p>
                           <p className={`text-sm font-medium ${tokenReturnSinceListing >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                             {tokenReturnSinceListing >= 0 ? '+' : ''}{tokenReturnSinceListing.toFixed(1)}%
                       </p>
@@ -575,7 +575,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
             ) : (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm text-white/60 mb-2">Amount (SOL)</label>
+                  <label className="block text-sm text-white mb-2">Amount (SOL)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -629,7 +629,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
                   {investing ? 'Processing...' : 'Invest Now'}
                 </button>
 
-                <p className="text-xs text-white/40 text-center">
+                <p className="text-xs text-white/60 text-center">
                   A 0.5% fee will be charged to the lister
                 </p>
               </div>
@@ -643,21 +643,21 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
         <h2 className="text-xl mb-4">About This ETF</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
           <div>
-            <p className="text-white/60">Tokens</p>
+            <p className="text-white">Tokens</p>
             <p className="text-white font-medium">{etf.tokens.length}</p>
           </div>
           <div>
-            <p className="text-white/60">Listed On</p>
+            <p className="text-white">Listed On</p>
             <p className="text-white font-medium">
               {new Date(etf.created_at).toLocaleDateString()}
             </p>
           </div>
           <div>
-            <p className="text-white/60">Network</p>
+            <p className="text-white">Network</p>
             <p className="text-white font-medium">Solana Devnet</p>
           </div>
           <div>
-            <p className="text-white/60">Fee Structure</p>
+            <p className="text-white">Fee Structure</p>
             <p className="text-white font-medium">0.5% on trades</p>
           </div>
         </div>

@@ -247,12 +247,12 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
           <div className="pt-4 border-t border-white/10">
             <h3 className="text-lg">Protocol Balance</h3>
             {loading ? (
-              <p className="text-white/60 mt-1">Loading...</p>
+              <p className="text-white mt-1">Loading...</p>
             ) : (
               <p className="text-2xl mt-1">{(protocolWallet?.balance || 0).toFixed(4)} SOL</p>
             )}
             {protocolWallet && protocolWallet.publicKey && (
-              <p className="text-xs text-white/40 mt-1">
+              <p className="text-xs text-white/60 mt-1">
                 {protocolWallet.publicKey.slice(0, 8)}...{protocolWallet.publicKey.slice(-8)}
               </p>
             )}
@@ -273,7 +273,7 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
           {/* Deposit Section */}
           <div className="pt-4 border-t border-white/10 space-y-4">
             <div>
-              <label className="text-sm text-white/60">Deposit Amount (SOL)</label>
+              <label className="text-sm text-white">Deposit Amount (SOL)</label>
               <div className="mt-2 flex items-center gap-3">
                 <input
                   type="number"
@@ -287,8 +287,8 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
                 <span className="text-white/60">SOL</span>
               </div>
               <div className="flex items-center justify-between mt-2">
-                <span className="text-xs text-white/40">Wallet Balance</span>
-                <span className="text-xs text-white/60">{walletBalance.toFixed(4)}</span>
+                <span className="text-xs text-white/60">Wallet Balance</span>
+                <span className="text-xs text-white">{walletBalance.toFixed(4)}</span>
               </div>
             </div>
             <button 
@@ -310,7 +310,7 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
           {/* Withdraw Section */}
           <div className="pt-4 border-t border-white/10 space-y-4">
             <div>
-              <label className="text-sm text-white/60">Withdraw Amount (SOL)</label>
+              <label className="text-sm text-white">Withdraw Amount (SOL)</label>
               <div className="mt-2 flex items-center gap-3">
                 <input
                   type="number"
@@ -324,8 +324,8 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
                 <span className="text-white/60">SOL</span>
               </div>
               <div className="flex items-center justify-between mt-2">
-                <span className="text-xs text-white/40">Protocol Balance</span>
-                <span className="text-xs text-white/60">{(protocolWallet?.balance || 0).toFixed(4)}</span>
+                <span className="text-xs text-white/60">Protocol Balance</span>
+                <span className="text-xs text-white">{(protocolWallet?.balance || 0).toFixed(4)}</span>
               </div>
             </div>
             <button 

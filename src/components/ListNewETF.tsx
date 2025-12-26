@@ -343,7 +343,7 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
         <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-8 transition-all duration-300 hover:border-white/20">
           <div className="text-center mb-8">
             <h2 className="text-3xl mb-3">Token Allocations</h2>
-            <p className="text-white/60">
+            <p className="text-white">
               Add tokens and their percentage allocations (must total 100%)
             </p>
             <p className={`text-sm mt-2 ${Math.abs(totalPercentage - 100) < 0.01 ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -392,11 +392,11 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
                     )}
                     <div className="flex-1">
                       <p className="text-white font-medium">{token.name}</p>
-                      <p className="text-white/60 text-sm">{token.symbol}</p>
+                      <p className="text-white text-sm">{token.symbol}</p>
                     </div>
                     {token.marketCap > 0 && (
                       <div className="text-right">
-                        <p className="text-white/60 text-xs">Market Cap</p>
+                        <p className="text-white text-xs">Market Cap</p>
                         <p className="text-white font-medium">{formatMarketCap(token.marketCap)}</p>
                       </div>
                     )}
@@ -425,7 +425,7 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
             <h3 className="text-lg font-medium text-emerald-400">ETF Summary</h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="rounded-lg border border-white/10 p-4">
-                <p className="text-xs text-white/60 mb-1">Total Market Cap</p>
+                <p className="text-xs text-white mb-1">Total Market Cap</p>
                 <p className="text-xl text-white">
                   {(() => {
                     const validTokens = tokenAllocations.filter(t => t.address && t.marketCap > 0);
@@ -440,19 +440,19 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
                 </p>
               </div>
               <div className="rounded-lg border border-white/10 p-4">
-                <p className="text-xs text-white/60 mb-1">Tokens Included</p>
+                <p className="text-xs text-white mb-1">Tokens Included</p>
                 <p className="text-xl text-white">{tokenAllocations.filter(t => t.address).length}</p>
               </div>
             </div>
             <div className="border-t border-white/10 pt-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-white/80">Deployment Fee</p>
-                  <p className="text-xs text-white/50">Required to deploy smart contract on Solana</p>
+                  <p className="text-sm text-white">Deployment Fee</p>
+                  <p className="text-xs text-white/60">Required to deploy smart contract on Solana</p>
                 </div>
                 <div className="text-right">
                   <p className="text-lg text-white font-medium">0.01 SOL</p>
-                  <p className="text-xs text-white/50">~$2.00</p>
+                  <p className="text-xs text-white/60">~$2.00</p>
                 </div>
               </div>
             </div>
