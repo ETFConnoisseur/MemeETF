@@ -169,6 +169,31 @@ pub mod mtf_etf {
 
         Ok(())
     }
+
+    pub fn close_etf(ctx: Context<CloseETF>) -> Result<()> {
+        require!(
+            ctx.accounts.lister.key() == ctx.accounts.etf.lister,
+            ErrorCode::Unauthorized
+        );
+
+        require!(
+            ctx.accounts.etf.total_supply == 0,
+            ErrorCode::CannotCloseWithSupply
+        );
+
+        // Transfer any remaining lamports (including rent) to lister
+        let etf_lamports = ctx.accounts.etf.to_account_info().lamports();
+        **ctx.accounts.etf.to_account_info().try_borrow_mut_lamports()? = 0;
+        **ctx.accounts.lister.to_account_info().try_borrow_mut_lamports()? += etf_lamports;
+
+        emit!(ETFClosedEvent {
+            etf_address: ctx.accounts.etf.key(),
+            lister: ctx.accounts.lister.key(),
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -219,6 +244,19 @@ pub struct ClaimFees<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[derive(Accounts)]
+pub struct CloseETF<'info> {
+    #[account(
+        mut,
+        close = lister,
+        has_one = lister,
+    )]
+    pub etf: Account<'info, ETF>,
+    #[account(mut)]
+    pub lister: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
 #[account]
 pub struct ETF {
     pub lister: Pubkey,
@@ -246,6 +284,13 @@ pub struct FeeClaimedEvent {
     pub timestamp: i64,
 }
 
+#[event]
+pub struct ETFClosedEvent {
+    pub etf_address: Pubkey,
+    pub lister: Pubkey,
+    pub timestamp: i64,
+}
+
 #[error_code]
 pub enum ErrorCode {
     #[msg("Insufficient funds for this operation")]
@@ -258,4 +303,6 @@ pub enum ErrorCode {
     InvalidTokenPercentages,
     #[msg("No fees available to claim")]
     NoFeesToClaim,
+    #[msg("Cannot close ETF with outstanding supply")]
+    CannotCloseWithSupply,
 }

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabasePool } from '@/lib/database/connection';
+import { closeEtf, getConnection } from '@/lib/solana/program';
+import { decryptPrivateKey, getKeypairFromPrivateKey } from '@/lib/solana/wallet';
 
 export async function GET(
   request: NextRequest,
@@ -139,12 +141,39 @@ export async function DELETE(
       }
     }
 
+    // Close the ETF on-chain (returns rent to lister)
+    try {
+      // Get the lister's (creator's) protocol wallet
+      const listerWalletResult = await pool.query(
+        'SELECT encrypted_private_key, public_key FROM wallets WHERE user_id = $1',
+        [userId]
+      );
+
+      if (listerWalletResult.rows.length > 0) {
+        const { encrypted_private_key } = listerWalletResult.rows[0];
+        const privateKey = decryptPrivateKey(encrypted_private_key);
+        const listerKeypair = getKeypairFromPrivateKey(privateKey);
+
+        const connection = getConnection('devnet');
+
+        console.log('[Delete ETF] Closing ETF PDA on-chain...');
+        const closeTxSignature = await closeEtf(connection, listerKeypair);
+        console.log('[Delete ETF] ✅ ETF PDA closed successfully:', closeTxSignature);
+      } else {
+        console.warn('[Delete ETF] Could not find lister wallet to close PDA');
+      }
+    } catch (closeError: any) {
+      console.error('[Delete ETF] Failed to close ETF on-chain:', closeError.message);
+      // Continue with database deletion even if on-chain close fails
+      // The PDA might not exist or might have already been closed
+    }
+
     // Delete related records first (investments, portfolio, fees, transactions)
     await pool.query('DELETE FROM fees WHERE etf_id = $1', [id]);
     await pool.query('DELETE FROM investments WHERE etf_id = $1', [id]);
     await pool.query('DELETE FROM portfolio WHERE etf_id = $1', [id]);
     await pool.query('DELETE FROM transactions WHERE etf_id = $1', [id]);
-    
+
     // Delete the ETF
     await pool.query('DELETE FROM etf_listings WHERE id = $1', [id]);
 

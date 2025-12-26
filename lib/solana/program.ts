@@ -29,6 +29,7 @@ const DISC = {
   buyEtf: getDiscriminator('buy_etf'),
   sellEtf: getDiscriminator('sell_etf'),
   claimFees: getDiscriminator('claim_fees'),
+  closeEtf: getDiscriminator('close_etf'),
 };
 
 export function getConnection(network: 'devnet' | 'mainnet' = 'devnet'): Connection {
@@ -291,4 +292,30 @@ export async function sellEtf(
   
   const tx = new Transaction().add(ix);
   return sendAndConfirmTransaction(connection, tx, [investorKeypair], { commitment: 'confirmed' });
+}
+
+/**
+ * Close ETF - accounts: [etf, lister, system_program]
+ * Can only be called by the lister when total_supply is 0
+ */
+export async function closeEtf(
+  connection: Connection,
+  listerKeypair: Keypair
+): Promise<string> {
+  const [etfPda] = getEtfPda(listerKeypair.publicKey);
+
+  const data = DISC.closeEtf;
+
+  const ix = new TransactionInstruction({
+    keys: [
+      { pubkey: etfPda, isSigner: false, isWritable: true },
+      { pubkey: listerKeypair.publicKey, isSigner: true, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    programId: PROGRAM_ID,
+    data,
+  });
+
+  const tx = new Transaction().add(ix);
+  return sendAndConfirmTransaction(connection, tx, [listerKeypair], { commitment: 'confirmed' });
 }
