@@ -68,10 +68,8 @@ export async function getJupiterQuote(
   isDevnet: boolean = true
 ): Promise<JupiterQuoteResponse | null> {
   try {
-    // Use dev.jup.ag for devnet, quote-api.jup.ag for mainnet
-    const baseUrl = isDevnet
-      ? 'https://dev.jup.ag/v6'
-      : 'https://quote-api.jup.ag/v6';
+    // Use api.jup.ag for both devnet and mainnet
+    const baseUrl = 'https://api.jup.ag/v6';
 
     const params = new URLSearchParams({
       inputMint,
@@ -80,7 +78,7 @@ export async function getJupiterQuote(
       slippageBps: slippageBps.toString(),
     });
 
-    console.log(`[JupiterSwap] Fetching quote from ${baseUrl}/quote`);
+    console.log(`[JupiterSwap] Fetching quote from ${baseUrl}/quote (${isDevnet ? 'devnet' : 'mainnet'})`);
     const response = await fetch(`${baseUrl}/quote?${params}`);
 
     if (!response.ok) {
@@ -108,12 +106,10 @@ export async function executeJupiterSwap(
   isDevnet: boolean = true
 ): Promise<string> {
   try {
-    // Use dev.jup.ag for devnet, quote-api.jup.ag for mainnet
-    const baseUrl = isDevnet
-      ? 'https://dev.jup.ag/v6'
-      : 'https://quote-api.jup.ag/v6';
+    // Use api.jup.ag for both devnet and mainnet
+    const baseUrl = 'https://api.jup.ag/v6';
 
-    console.log(`[JupiterSwap] Executing swap via ${baseUrl}/swap`);
+    console.log(`[JupiterSwap] Executing swap via ${baseUrl}/swap (${isDevnet ? 'devnet' : 'mainnet'})`);
 
     // Get swap transaction from Jupiter
     const swapResponse = await fetch(`${baseUrl}/swap`, {
