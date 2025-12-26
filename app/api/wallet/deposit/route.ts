@@ -4,8 +4,9 @@ import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { getConnection } from '@/lib/solana/wallet';
 
 export async function POST(request: NextRequest) {
+  let body: any = {};
   try {
-    const body = await request.json();
+    body = await request.json();
     const { userId, amount, txHash } = body;
 
     if (!userId) {
@@ -141,7 +142,6 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error: any) {
-    const body = await request.json().catch(() => ({}));
     console.error('[Deposit API] Error depositing:', error);
     console.error('[Deposit API] Error details:', {
       message: error.message,
@@ -152,7 +152,7 @@ export async function POST(request: NextRequest) {
       txHash: body.txHash || 'unknown',
     });
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to process deposit',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       },
