@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     try {
       // Check if user already has a wallet
       const existing = await pool.query(
-        'SELECT public_key, sol_balance FROM wallets WHERE user_id = $1',
+        'SELECT w.public_key, u.protocol_sol_balance FROM wallets w JOIN users u ON w.user_id = u.wallet_address WHERE w.user_id = $1',
         [userId]
       );
 
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
           success: true,
           wallet: {
             publicKey: existing.rows[0].public_key,
-            balance: parseFloat(existing.rows[0].sol_balance),
+            balance: parseFloat(existing.rows[0].protocol_sol_balance || '0'),
           },
         });
       }
@@ -62,18 +62,17 @@ export async function POST(request: NextRequest) {
       );
 
       // Create wallet
-      const result = await pool.query(
+      await pool.query(
         `INSERT INTO wallets (user_id, public_key, encrypted_private_key, sol_balance)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id, public_key, sol_balance`,
+         VALUES ($1, $2, $3, $4)`,
         [userId, publicKey, encryptedPrivateKey, 0]
       );
 
       return NextResponse.json({
         success: true,
         wallet: {
-          publicKey: result.rows[0].public_key,
-          balance: parseFloat(result.rows[0].sol_balance),
+          publicKey: publicKey,
+          balance: 0,
         },
       });
     } catch (dbError: any) {
