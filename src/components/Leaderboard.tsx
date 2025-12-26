@@ -56,18 +56,18 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
       {/* Top 3 Podium */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
         {/* Second Place */}
-        <div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm p-8 text-center">
+        <div className="rounded-xl border-2 border-gray-400 bg-transparent backdrop-blur-sm p-8 text-center">
           <div className="w-16 h-16 rounded-full bg-gradient-to-br from-gray-300 to-gray-500 flex items-center justify-center mx-auto mb-4">
             <Medal className="w-8 h-8 text-white" />
           </div>
-          <p className="text-sm text-white/60 mb-1">#2</p>
+          <p className="text-sm text-white mb-1">#2</p>
           {loading ? (
             <p className="text-white/40">Loading...</p>
           ) : topThree[1] ? (
             <>
-              <p className="text-lg mb-1">{topThree[1].twitter_handle || topThree[1].user_id?.slice(0, 8) || 'Unknown'}</p>
-              <p className="text-sm text-white/60">{topThree[1].etf_name || 'Unknown ETF'}</p>
-              <p className={`text-xl mt-2 ${(topThree[1].return_percentage || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              <p className="text-lg text-white mb-1">{topThree[1].twitter_handle || topThree[1].user_id?.slice(0, 8) || 'Unknown'}</p>
+              <p className="text-sm text-white">{topThree[1].etf_name || 'Unknown ETF'}</p>
+              <p className={`text-xl text-white mt-2 ${(topThree[1].return_percentage || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                 {(topThree[1].return_percentage || 0) >= 0 ? '+' : ''}{(topThree[1].return_percentage || 0).toFixed(2)}%
               </p>
             </>
@@ -75,20 +75,20 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
             <p className="text-white/40">No data</p>
           )}
         </div>
-        
+
         {/* First Place */}
-        <div className="rounded-xl border border-yellow-500/30 bg-gradient-to-br from-yellow-500/20 to-yellow-500/5 backdrop-blur-sm p-8 text-center">
+        <div className="rounded-xl border-2 border-yellow-500 bg-transparent backdrop-blur-sm p-8 text-center">
           <div className="w-20 h-20 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center mx-auto mb-4">
             <Trophy className="w-10 h-10 text-white" />
           </div>
-          <p className="text-sm text-white/60 mb-1">#1</p>
+          <p className="text-sm text-white mb-1">#1</p>
           {loading ? (
             <p className="text-white/40">Loading...</p>
           ) : topThree[0] ? (
             <>
-              <p className="text-xl mb-1">{topThree[0].twitter_handle || topThree[0].user_id?.slice(0, 8) || 'Unknown'}</p>
-              <p className="text-sm text-white/60">{topThree[0].etf_name || 'Unknown ETF'}</p>
-              <p className={`text-2xl mt-2 ${(topThree[0].return_percentage || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              <p className="text-xl text-white mb-1">{topThree[0].twitter_handle || topThree[0].user_id?.slice(0, 8) || 'Unknown'}</p>
+              <p className="text-sm text-white">{topThree[0].etf_name || 'Unknown ETF'}</p>
+              <p className={`text-2xl text-white mt-2 ${(topThree[0].return_percentage || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                 {(topThree[0].return_percentage || 0) >= 0 ? '+' : ''}{(topThree[0].return_percentage || 0).toFixed(2)}%
               </p>
             </>
@@ -96,20 +96,20 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
             <p className="text-white/40">No data</p>
           )}
         </div>
-        
+
         {/* Third Place */}
-        <div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm p-8 text-center">
+        <div className="rounded-xl border-2 border-amber-700 bg-transparent backdrop-blur-sm p-8 text-center">
           <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-600 to-amber-800 flex items-center justify-center mx-auto mb-4">
             <Award className="w-8 h-8 text-white" />
           </div>
-          <p className="text-sm text-white/60 mb-1">#3</p>
+          <p className="text-sm text-white mb-1">#3</p>
           {loading ? (
             <p className="text-white/40">Loading...</p>
           ) : topThree[2] ? (
             <>
-              <p className="text-lg mb-1">{topThree[2].twitter_handle || topThree[2].user_id?.slice(0, 8) || 'Unknown'}</p>
-              <p className="text-sm text-white/60">{topThree[2].etf_name || 'Unknown ETF'}</p>
-              <p className={`text-xl mt-2 ${(topThree[2].return_percentage || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              <p className="text-lg text-white mb-1">{topThree[2].twitter_handle || topThree[2].user_id?.slice(0, 8) || 'Unknown'}</p>
+              <p className="text-sm text-white">{topThree[2].etf_name || 'Unknown ETF'}</p>
+              <p className={`text-xl text-white mt-2 ${(topThree[2].return_percentage || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                 {(topThree[2].return_percentage || 0) >= 0 ? '+' : ''}{(topThree[2].return_percentage || 0).toFixed(2)}%
               </p>
             </>
@@ -120,13 +120,13 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
       </div>
 
       {/* Leaderboard Table */}
-      <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm overflow-hidden">
+      <div className="rounded-2xl border-2 border-gray-400 bg-transparent backdrop-blur-sm overflow-hidden">
         {/* Table Header */}
-        <div className="grid grid-cols-12 gap-4 px-8 py-5 border-b border-white/10 bg-black/40">
-          <div className="col-span-1 text-sm text-white/60 uppercase tracking-wider">Rank</div>
-          <div className="col-span-4 text-sm text-white/60 uppercase tracking-wider">User</div>
-          <div className="col-span-4 text-sm text-white/60 uppercase tracking-wider">ETF Name</div>
-          <div className="col-span-3 text-sm text-white/60 uppercase tracking-wider text-right">Return %</div>
+        <div className="grid grid-cols-12 gap-4 px-8 py-5 border-b border-white/10 bg-transparent">
+          <div className="col-span-1 text-sm text-white uppercase tracking-wider">Rank</div>
+          <div className="col-span-4 text-sm text-white uppercase tracking-wider">User</div>
+          <div className="col-span-4 text-sm text-white uppercase tracking-wider">ETF Name</div>
+          <div className="col-span-3 text-sm text-white uppercase tracking-wider text-right">Return %</div>
         </div>
 
         {/* Table Body */}
@@ -148,18 +148,18 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
                 className="grid grid-cols-12 gap-4 px-8 py-5 border-b border-white/5 hover:bg-white/5 transition-all cursor-pointer"
               >
                 <div className="col-span-1 flex items-center">
-                  <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-sm">
+                  <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-sm text-white">
                     {entry.rank || index + 1}
                   </div>
                 </div>
                 <div className="col-span-4 flex items-center">
-                  <p className="text-white/90">{entry.twitter_handle || entry.user_id?.slice(0, 12) || 'Unknown'}</p>
+                  <p className="text-white">{entry.twitter_handle || entry.user_id?.slice(0, 12) || 'Unknown'}</p>
                 </div>
                 <div className="col-span-4 flex items-center">
-                  <p className="text-white/80 hover:text-white transition-colors">{entry.etf_name || 'Unknown ETF'}</p>
+                  <p className="text-white hover:text-white transition-colors">{entry.etf_name || 'Unknown ETF'}</p>
                 </div>
                 <div className="col-span-3 flex items-center justify-end">
-                  <p className={`text-lg font-mono ${(entry.return_percentage || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  <p className={`text-lg font-mono text-white ${(entry.return_percentage || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                     {(entry.return_percentage || 0) >= 0 ? '+' : ''}{(entry.return_percentage || 0).toFixed(2)}%
                   </p>
                 </div>

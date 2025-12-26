@@ -10,6 +10,8 @@ import { Rewards } from './components/Rewards';
 import { Settings } from './components/Settings';
 import { ListNewETF } from './components/ListNewETF';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { ToastContainer, useToast } from './components/TransactionToast';
+import { ToastProvider } from './contexts/ToastContext';
 
 interface NavigationData {
   etfId?: string;
@@ -18,6 +20,7 @@ interface NavigationData {
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [navData, setNavData] = useState<NavigationData>({});
+  const { toasts, addToast, updateToast, removeToast } = useToast();
 
   const handleNavigate = (tab: string, data?: NavigationData) => {
     setActiveTab(tab);
@@ -73,14 +76,17 @@ export default function App() {
 
   return (
     <WalletContextProvider>
-      <div className="min-h-screen bg-black text-white">
-        <Navigation activeTab={activeTab} onTabChange={handleNavigate} />
-        <main className="pb-12">
-          <ErrorBoundary>
-          {renderContent()}
-          </ErrorBoundary>
-        </main>
-      </div>
+      <ToastProvider value={{ addToast, updateToast, removeToast }}>
+        <div className="min-h-screen bg-black text-white">
+          <Navigation activeTab={activeTab} onTabChange={handleNavigate} />
+          <main className="pb-12">
+            <ErrorBoundary>
+            {renderContent()}
+            </ErrorBoundary>
+          </main>
+          <ToastContainer toasts={toasts} onClose={removeToast} />
+        </div>
+      </ToastProvider>
     </WalletContextProvider>
   );
 }

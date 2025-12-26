@@ -21,6 +21,9 @@ wallet = "~/.config/solana/id.json"
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
 
+[build]
+cargo-args = ["--skip-tools-install"]
+
 [test]
 startup_wait = 10000
 

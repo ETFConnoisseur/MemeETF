@@ -4,6 +4,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { apiGet, apiPost, apiDelete } from '../lib/api';
 import { getTokenLogo } from '../lib/tokenLogos';
 import type { ETF, InvestmentResponse } from '../types';
+import { useToastContext } from '../contexts/ToastContext';
 
 interface TokenWithLiveData {
   address: string;
@@ -89,6 +90,7 @@ function TokenImage({
 
 export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
   const { publicKey, connected } = useWallet();
+  const { addToast, updateToast } = useToastContext();
   const [etf, setEtf] = useState<ETF | null>(null);
   const [loading, setLoading] = useState(true);
   const [investAmount, setInvestAmount] = useState('');
@@ -193,6 +195,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
   }
 
   // Calculate weighted total current market cap (for display)
+  // Calculate current total ETF market cap (weighted sum of current token MCs)
   const currentTotalMC = tokensWithLiveData.reduce((sum, token) => {
     return sum + (token.current_market_cap * (token.weight / 100));
   }, 0);
@@ -202,16 +205,11 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
     return sum + (token.market_cap * (token.weight / 100));
   }, 0);
 
-  // Calculate overall return since listing as WEIGHTED AVERAGE of individual token returns
-  // Each token return = ((current_mc - listing_mc) / listing_mc) * 100
-  // Then weight by allocation percentage
-  const returnSinceListing = tokensWithLiveData.reduce((sum, token) => {
-    if (token.market_cap > 0 && token.current_market_cap > 0) {
-      const tokenReturn = ((token.current_market_cap - token.market_cap) / token.market_cap) * 100;
-      return sum + (tokenReturn * (token.weight / 100));
-    }
-    return sum;
-  }, 0);
+  // Calculate overall return since listing
+  // Compare current weighted ETF MC vs ETF MC at listing
+  const returnSinceListing = listedTotalMC > 0 && currentTotalMC > 0
+    ? ((currentTotalMC - listedTotalMC) / listedTotalMC) * 100
+    : 0;
 
   // Calculate weighted 24h return (weighted average of each token's 24h change)
   const return24h = tokensWithLiveData.reduce((sum, token) => {
@@ -233,6 +231,14 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
     setSuccess('');
     setInvesting(true);
 
+    // Show pending toast
+    const toastId = addToast({
+      type: 'etf_buy',
+      status: 'pending',
+      message: `Purchasing ${investAmount} SOL of ${etf.name}...`,
+      network: 'devnet',
+    });
+
     try {
       const response = await apiPost<InvestmentResponse>('/api/investments/create', {
         etfId: etf.id,
@@ -241,16 +247,33 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
       });
 
       if (response.success) {
+        // Update toast to success with transaction details
+        updateToast(toastId, {
+          status: 'success',
+          message: `Successfully purchased ${investAmount} SOL of ${etf.name}!`,
+          txSignature: response.txHash,
+          swapSignatures: response.swapSignatures,
+          tokenSubstitutions: response.tokenSubstitutions,
+        });
+
         setSuccess(`Successfully invested ${investAmount} SOL!`);
         setInvestAmount('');
         setTimeout(() => {
           onNavigate('portfolio');
         }, 2000);
       } else {
+        updateToast(toastId, {
+          status: 'error',
+          message: (response as any).error || 'Failed to invest',
+        });
         setError((response as any).error || 'Failed to invest');
       }
     } catch (error: any) {
       console.error('Error investing:', error);
+      updateToast(toastId, {
+        status: 'error',
+        message: error.message || 'Failed to invest',
+      });
       setError(error.message || 'Failed to invest');
     } finally {
       setInvesting(false);

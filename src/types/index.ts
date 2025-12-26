@@ -212,6 +212,15 @@ export interface InvestmentResponse {
     created_at: Date;
   };
   txHash: string;
+  swapSignatures?: string[];
+  tokenSubstitutions?: Array<{
+    originalToken: string;
+    finalToken: string;
+    isSubstituted: boolean;
+    solAmount: number;
+    percentage: number;
+    txSignature: string | null;
+  }>;
   newBalance: number;
 }
 

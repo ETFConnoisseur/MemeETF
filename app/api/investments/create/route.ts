@@ -69,25 +69,41 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
+    // Parse tokens from JSONB column
+    const tokens = typeof etf.tokens === 'string' ? JSON.parse(etf.tokens) : etf.tokens;
+
+    if (!tokens || tokens.length === 0) {
+      return NextResponse.json({ error: 'ETF has no tokens configured' }, { status: 400 });
+    }
+
+    const tokenAddresses = tokens.map((t: any) => new PublicKey(t.address));
+    const tokenPercentages = tokens.map((t: any) => parseFloat(t.weight));
+
     // Get ETF PDA
     const [etfPda] = getEtfPda(listerPubkey);
-    
+
     console.log('[Investment] 🚀 Executing on-chain buy...');
     console.log('[Investment] Investor:', investorKeypair.publicKey.toBase58());
     console.log('[Investment] ETF PDA:', etfPda.toBase58());
     console.log('[Investment] Lister:', listerPubkey.toBase58());
     console.log('[Investment] Amount:', solAmount, 'SOL');
+    console.log('[Investment] Tokens:', tokenAddresses.map((t: PublicKey) => t.toBase58()));
+    console.log('[Investment] Percentages:', tokenPercentages);
 
-    // Execute on-chain buy
-    const signature = await buyEtf(
+    // Execute on-chain buy with token swaps
+    const buyResult = await buyEtf(
       connection,
       investorKeypair,
       etfPda,
       listerPubkey,
-      solAmount
+      solAmount,
+      tokenAddresses,
+      tokenPercentages
     );
 
-    console.log('[Investment] ✅ On-chain transaction confirmed:', signature);
+    console.log('[Investment] ✅ Main transaction confirmed:', buyResult.mainTxSignature);
+    console.log('[Investment] ✅ Swap transactions:', buyResult.swapSignatures);
+    console.log('[Investment] Token substitutions:', buyResult.tokenSubstitutions);
 
     // Update database after successful on-chain transaction
     const entryMarketCap = parseFloat(etf.market_cap_at_list);
@@ -107,11 +123,34 @@ export async function POST(request: NextRequest) {
       [userId, etfId, solAmount, entryMarketCap, tokensReceived]
     );
 
+    // Record main ETF buy transaction
     await pool.query(
       `INSERT INTO transactions (user_id, type, amount, fees, etf_id, tx_hash, status)
        VALUES ($1, 'buy', $2, $3, $4, $5, 'completed')`,
-      [userId, solAmount, totalFee, etfId, signature]
+      [userId, solAmount, totalFee, etfId, buyResult.mainTxSignature]
     );
+
+    // Record each token swap transaction
+    for (const swap of buyResult.tokenSubstitutions) {
+      if (swap.txSignature) {
+        await pool.query(
+          `INSERT INTO transactions (user_id, type, amount, fees, etf_id, tx_hash, status, metadata)
+           VALUES ($1, 'token_swap', $2, 0, $3, $4, 'completed', $5)`,
+          [
+            userId,
+            swap.solAmount,
+            etfId,
+            swap.txSignature,
+            JSON.stringify({
+              originalToken: swap.originalToken,
+              finalToken: swap.finalToken,
+              isSubstituted: swap.isSubstituted,
+              percentage: swap.percentage,
+            }),
+          ]
+        );
+      }
+    }
 
     await pool.query(
       `INSERT INTO portfolio (user_id, etf_id, amount, entry_price, current_value)
@@ -143,7 +182,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       investment: investmentResult.rows[0],
-      txHash: signature,
+      txHash: buyResult.mainTxSignature,
+      swapSignatures: buyResult.swapSignatures,
+      tokenSubstitutions: buyResult.tokenSubstitutions,
       newBalance: newBalance,
       feesRecorded: { listerFee, platformFee },
     });

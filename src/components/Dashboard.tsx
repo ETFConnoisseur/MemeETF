@@ -116,23 +116,27 @@ export function Dashboard({ onNavigate }: DashboardProps) {
     return isNaN(result) ? 0 : result;
   }
 
-  // Calculate return percentage since listing as weighted average of individual token returns
-  function getReturnSinceListing(etf: ETF): number {
+  // Calculate current MC for an ETF
+  function getCurrentMC(etf: ETF): number {
     if (!etf?.tokens?.length) return 0;
-    
     const result = etf.tokens.reduce((sum, token) => {
-      const currentMC = currentPrices[token.address] || token.market_cap || 0;
-      const listingMC = token.market_cap || 0;
+      const mc = currentPrices[token.address] || token.market_cap || 0;
       const weight = token.weight || 0;
-      
-      if (listingMC > 0 && currentMC > 0) {
-        const tokenReturn = ((currentMC - listingMC) / listingMC) * 100;
-        return sum + (tokenReturn * weight / 100);
-      }
-      return sum;
+      return sum + (mc * weight / 100);
     }, 0);
-    
     return isNaN(result) ? 0 : result;
+  }
+
+  // Calculate return percentage since listing
+  // Compare current weighted ETF MC vs ETF MC at listing
+  function getReturnSinceListing(etf: ETF): number {
+    const currentMC = getCurrentMC(etf);
+    const listingMC = etf.market_cap_at_list || 0;
+
+    if (listingMC <= 0 || currentMC <= 0) return 0;
+
+    const returnPct = ((currentMC - listingMC) / listingMC) * 100;
+    return isNaN(returnPct) ? 0 : returnPct;
   }
 
   function handleETFClick(etf: ETF) {

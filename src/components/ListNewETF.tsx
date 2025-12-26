@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Plus, X, Loader2 } from 'lucide-react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { apiPost } from '../lib/api';
+import { useToastContext } from '../contexts/ToastContext';
 
 // Format market cap with appropriate suffix (K, M, B)
 function formatMarketCap(value: number): string {
@@ -33,6 +34,7 @@ interface ListNewETFProps {
 
 export function ListNewETF({ onNavigate }: ListNewETFProps) {
   const { publicKey, connected } = useWallet();
+  const { addToast, updateToast } = useToastContext();
   const [etfName, setEtfName] = useState('');
   const [tokenAllocations, setTokenAllocations] = useState<TokenAllocation[]>([
     { id: '1', address: '', symbol: '', name: '', image: '', marketCap: 0, percentage: 33.33 },
@@ -229,32 +231,40 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
 
     try {
       setDeploying(true);
-      
+
       // Filter out tokens without valid data
-      const validTokens = tokenAllocations.filter(t => 
-        t.address && 
-        t.marketCap > 0 && 
-        !isNaN(t.marketCap) && 
+      const validTokens = tokenAllocations.filter(t =>
+        t.address &&
+        t.marketCap > 0 &&
+        !isNaN(t.marketCap) &&
         isFinite(t.marketCap)
       );
-      
+
       if (validTokens.length === 0) {
         setError('Please add at least one token with valid market cap data');
         setDeploying(false);
         return;
       }
-      
+
       // Calculate total market cap based on valid token allocations
       const totalMarketCap = validTokens.reduce((sum, token) => {
         return sum + (token.marketCap * (token.percentage / 100));
       }, 0);
-      
+
       console.log('[ListNewETF] Total Market Cap calculated:', totalMarketCap);
       console.log('[ListNewETF] Token data:', validTokens.map(t => ({
         symbol: t.symbol,
         marketCap: t.marketCap,
         weight: t.percentage
       })));
+
+      // Show pending toast
+      const toastId = addToast({
+        type: 'etf_create',
+        status: 'pending',
+        message: `Creating ETF "${etfName}"...`,
+        network: 'devnet',
+      });
 
       const response = await apiPost<{ success: boolean; error?: string; etf?: any }>('/api/etfs/create', {
         name: etfName,
@@ -269,9 +279,18 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
         })),
       });
 
-      if (response.success) {
+      if (response.success && response.etf) {
+        updateToast(toastId, {
+          status: 'success',
+          message: `Successfully created ETF "${etfName}"!`,
+          txSignature: response.etf.transaction_signature,
+        });
         onNavigate('dashboard');
       } else {
+        updateToast(toastId, {
+          status: 'error',
+          message: response.error || 'Failed to create ETF',
+        });
         setError(response.error || 'Failed to create ETF');
       }
     } catch (err: any) {
