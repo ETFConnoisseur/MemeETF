@@ -59,9 +59,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'An ETF with these tokens already exists' }, { status: 400 });
     }
 
-    // Get user's protocol wallet
+    // Get user's protocol wallet and balance
     const walletResult = await pool.query(
-      'SELECT encrypted_private_key, public_key, sol_balance FROM wallets WHERE user_id = $1',
+      'SELECT w.encrypted_private_key, w.public_key, u.protocol_sol_balance FROM wallets w JOIN users u ON w.user_id = u.wallet_address WHERE w.user_id = $1',
       [userId]
     );
 
@@ -69,13 +69,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Protocol wallet not found. Visit Portfolio first.' }, { status: 400 });
     }
 
-    const { encrypted_private_key, public_key, sol_balance } = walletResult.rows[0];
-    const balance = parseFloat(sol_balance);
-    
+    const { encrypted_private_key, public_key, protocol_sol_balance } = walletResult.rows[0];
+    const balance = parseFloat(protocol_sol_balance || '0');
+
     if (balance < 0.01) {
-      return NextResponse.json({ 
-        success: false, 
-        error: `Need at least 0.01 SOL. You have ${balance.toFixed(4)} SOL.` 
+      return NextResponse.json({
+        success: false,
+        error: `Need at least 0.01 SOL in your protocol balance. You have ${balance.toFixed(4)} SOL. Please deposit first.`
       }, { status: 400 });
     }
 
@@ -95,14 +95,27 @@ export async function POST(request: NextRequest) {
 
     // Get connection and check on-chain balance
     const connection = getConnection('devnet');
-    const onChainBalance = await connection.getBalance(keypair.publicKey);
+    let onChainBalance = await connection.getBalance(keypair.publicKey);
     console.log('[ETF Create] On-chain balance:', onChainBalance / LAMPORTS_PER_SOL, 'SOL');
-    
+
+    // If protocol wallet has no SOL, request devnet airdrop
     if (onChainBalance < 0.01 * LAMPORTS_PER_SOL) {
-      return NextResponse.json({ 
-        success: false, 
-        error: `Insufficient devnet SOL. Have ${(onChainBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL, need 0.01` 
-      }, { status: 400 });
+      console.log('[ETF Create] Protocol wallet needs devnet SOL, requesting airdrop...');
+      try {
+        const airdropSignature = await connection.requestAirdrop(
+          keypair.publicKey,
+          1 * LAMPORTS_PER_SOL // Request 1 SOL
+        );
+        await connection.confirmTransaction(airdropSignature, 'confirmed');
+        onChainBalance = await connection.getBalance(keypair.publicKey);
+        console.log('[ETF Create] Airdrop successful! New balance:', onChainBalance / LAMPORTS_PER_SOL, 'SOL');
+      } catch (airdropError: any) {
+        console.error('[ETF Create] Airdrop failed:', airdropError.message);
+        return NextResponse.json({
+          success: false,
+          error: `Protocol wallet needs devnet SOL for transaction fees. Airdrop failed: ${airdropError.message}`
+        }, { status: 400 });
+      }
     }
     
     // Check if ETF already exists on-chain for this wallet
@@ -157,8 +170,8 @@ export async function POST(request: NextRequest) {
       [name, userId, etfPda.toString(), initialMarketCap, JSON.stringify(tokens), tokenHash]
     );
 
-    // Deduct fee and record transaction
-    await pool.query('UPDATE wallets SET sol_balance = sol_balance - 0.01 WHERE user_id = $1', [userId]);
+    // Deduct fee from protocol balance and record transaction
+    await pool.query('UPDATE users SET protocol_sol_balance = protocol_sol_balance - 0.01 WHERE wallet_address = $1', [userId]);
     await pool.query(
       `INSERT INTO transactions (user_id, type, amount, fees, status, tx_hash) VALUES ($1, 'buy', 0.01, 0.01, 'completed', $2)`,
       [userId, signature]
