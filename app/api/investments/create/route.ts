@@ -12,13 +12,16 @@ import { swapForEtfPurchase } from '@/lib/solana/jupiterSwap';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { etfId, solAmount, userId } = body;
+    const { etfId, solAmount, userId, network = 'devnet' } = body;
 
     if (!etfId || !userId) {
       return NextResponse.json({ error: 'ETF ID and User ID required' }, { status: 400 });
     }
     if (!solAmount || typeof solAmount !== 'number' || solAmount <= 0) {
       return NextResponse.json({ error: 'Valid SOL amount required' }, { status: 400 });
+    }
+    if (network !== 'devnet' && network !== 'mainnet-beta') {
+      return NextResponse.json({ error: 'Invalid network. Must be devnet or mainnet-beta' }, { status: 400 });
     }
 
     const pool = getDatabasePool();
@@ -91,9 +94,9 @@ export async function POST(request: NextRequest) {
     console.log('[Investment] Amount:', solAmount, 'SOL');
     console.log('[Investment] Tokens:', tokens.length);
 
-    // Determine if devnet or mainnet
-    const connection = getConnection('devnet'); // TODO: Make this dynamic based on env
-    const isDevnet = true; // TODO: Detect from connection
+    // Determine if devnet or mainnet from request
+    const connection = getConnection(network);
+    const isDevnet = network === 'devnet';
 
     // Execute Jupiter swaps for each token
     const tokenMints = tokens.map((t: any) => new PublicKey(t.address));

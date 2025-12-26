@@ -12,6 +12,7 @@ import { ListNewETF } from './components/ListNewETF';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer, useToast } from './components/TransactionToast';
 import { ToastProvider } from './contexts/ToastContext';
+import { NetworkProvider } from '../lib/contexts/NetworkContext';
 
 interface NavigationData {
   etfId?: string;
@@ -75,18 +76,20 @@ export default function App() {
   };
 
   return (
-    <WalletContextProvider>
-      <ToastProvider value={{ addToast, updateToast, removeToast }}>
-        <div className="min-h-screen bg-black text-white">
-          <Navigation activeTab={activeTab} onTabChange={handleNavigate} />
-          <main className="pb-12">
-            <ErrorBoundary>
-            {renderContent()}
-            </ErrorBoundary>
-          </main>
-          <ToastContainer toasts={toasts} onClose={removeToast} />
-        </div>
-      </ToastProvider>
-    </WalletContextProvider>
+    <NetworkProvider>
+      <WalletContextProvider>
+        <ToastProvider value={{ addToast, updateToast, removeToast }}>
+          <div className="min-h-screen bg-black text-white">
+            <Navigation activeTab={activeTab} onTabChange={handleNavigate} />
+            <main className="pb-12">
+              <ErrorBoundary>
+              {renderContent()}
+              </ErrorBoundary>
+            </main>
+            <ToastContainer toasts={toasts} onClose={removeToast} />
+          </div>
+        </ToastProvider>
+      </WalletContextProvider>
+    </NetworkProvider>
   );
 }

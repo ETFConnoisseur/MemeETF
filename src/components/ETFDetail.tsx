@@ -5,6 +5,7 @@ import { apiGet, apiPost, apiDelete } from '../lib/api';
 import { getTokenLogo } from '../lib/tokenLogos';
 import type { ETF, InvestmentResponse } from '../types';
 import { useToastContext } from '../contexts/ToastContext';
+import { useNetwork } from '../../lib/contexts/NetworkContext';
 
 interface TokenWithLiveData {
   address: string;
@@ -91,6 +92,7 @@ function TokenImage({
 export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
   const { publicKey, connected } = useWallet();
   const { addToast, updateToast } = useToastContext();
+  const { network } = useNetwork();
   const [etf, setEtf] = useState<ETF | null>(null);
   const [loading, setLoading] = useState(true);
   const [investAmount, setInvestAmount] = useState('');
@@ -231,12 +233,13 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
     setSuccess('');
     setInvesting(true);
 
-    // Show pending toast
+    // Show pending toast (convert network for toast compatibility)
+    const toastNetwork = network === 'mainnet-beta' ? 'mainnet' : 'devnet';
     const toastId = addToast({
       type: 'etf_buy',
       status: 'pending',
       message: `Purchasing ${investAmount} SOL of ${etf.name}...`,
-      network: 'devnet',
+      network: toastNetwork,
     });
 
     try {
@@ -244,6 +247,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
         etfId: etf.id,
         solAmount: parseFloat(investAmount),
         userId: publicKey.toBase58(),
+        network: network,
       });
 
       if (response.success) {

@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { WalletModal } from '@/src/components/WalletModal';
+import NetworkToggle from '@/components/NetworkToggle';
 
 export default function Navbar() {
   const { connected, publicKey } = useWallet();
@@ -63,6 +64,7 @@ export default function Navbar() {
 
             {/* Right Side */}
             <div className="flex items-center gap-4">
+              <NetworkToggle />
               {connected && publicKey ? (
                 <>
                   <button
