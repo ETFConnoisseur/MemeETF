@@ -68,8 +68,9 @@ export async function getJupiterQuote(
   isDevnet: boolean = true
 ): Promise<JupiterQuoteResponse | null> {
   try {
+    // Use dev.jup.ag for devnet, quote-api.jup.ag for mainnet
     const baseUrl = isDevnet
-      ? 'https://quote-api.jup.ag/v6' // Jupiter has limited devnet support
+      ? 'https://dev.jup.ag/v6'
       : 'https://quote-api.jup.ag/v6';
 
     const params = new URLSearchParams({
@@ -79,14 +80,17 @@ export async function getJupiterQuote(
       slippageBps: slippageBps.toString(),
     });
 
+    console.log(`[JupiterSwap] Fetching quote from ${baseUrl}/quote`);
     const response = await fetch(`${baseUrl}/quote?${params}`);
 
     if (!response.ok) {
-      console.error('[JupiterSwap] Quote API error:', response.statusText);
+      const errorText = await response.text();
+      console.error('[JupiterSwap] Quote API error:', response.status, errorText);
       return null;
     }
 
     const quote = await response.json();
+    console.log('[JupiterSwap] Quote received successfully');
     return quote as JupiterQuoteResponse;
   } catch (error) {
     console.error('[JupiterSwap] Error fetching quote:', error);
@@ -104,9 +108,12 @@ export async function executeJupiterSwap(
   isDevnet: boolean = true
 ): Promise<string> {
   try {
+    // Use dev.jup.ag for devnet, quote-api.jup.ag for mainnet
     const baseUrl = isDevnet
-      ? 'https://quote-api.jup.ag/v6'
+      ? 'https://dev.jup.ag/v6'
       : 'https://quote-api.jup.ag/v6';
+
+    console.log(`[JupiterSwap] Executing swap via ${baseUrl}/swap`);
 
     // Get swap transaction from Jupiter
     const swapResponse = await fetch(`${baseUrl}/swap`, {
@@ -124,7 +131,8 @@ export async function executeJupiterSwap(
     });
 
     if (!swapResponse.ok) {
-      throw new Error(`Swap API error: ${swapResponse.statusText}`);
+      const errorText = await swapResponse.text();
+      throw new Error(`Swap API error: ${swapResponse.status} - ${errorText}`);
     }
 
     const { swapTransaction } = await swapResponse.json();
@@ -135,12 +143,15 @@ export async function executeJupiterSwap(
 
     transaction.sign([userKeypair]);
 
+    console.log('[JupiterSwap] Sending transaction to blockchain...');
+
     // Send and confirm transaction
     const signature = await connection.sendTransaction(transaction, {
       skipPreflight: false,
       preflightCommitment: 'confirmed',
     });
 
+    console.log('[JupiterSwap] Transaction sent, confirming...', signature);
     await connection.confirmTransaction(signature, 'confirmed');
 
     console.log('[JupiterSwap] ✅ Swap successful:', signature);
