@@ -6,7 +6,7 @@ async function migrate() {
   console.log('Starting migration...');
 
   const config = {
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    ssl: { rejectUnauthorized: false },
     connectionTimeoutMillis: 5000,
   };
 
