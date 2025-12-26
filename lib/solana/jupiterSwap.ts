@@ -1,6 +1,10 @@
 /**
  * Jupiter Swap Service for on-chain token swaps
- * Supports both devnet (with USDC fallback) and mainnet
+ *
+ * DEVNET MODE: All token swaps are converted to devnet USDC as a demo
+ * MAINNET MODE: Real Jupiter swaps to actual meme tokens
+ *
+ * Fee Structure: 1% total (0.5% to ETF creator + 0.5% to platform dev)
  */
 
 import {
@@ -12,10 +16,15 @@ import {
   LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
 
-// Devnet USDC mint
+// Devnet USDC mint - used as placeholder for all tokens on devnet
 const DEVNET_USDC = new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
 // Mainnet USDC mint
 const MAINNET_USDC = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+
+// Fee constants
+const CREATOR_FEE_BPS = 50; // 0.5% = 50 basis points
+const DEV_FEE_BPS = 50;     // 0.5% = 50 basis points
+const TOTAL_FEE_BPS = CREATOR_FEE_BPS + DEV_FEE_BPS; // 1% total
 
 export interface SwapResult {
   signature: string;
@@ -23,6 +32,7 @@ export interface SwapResult {
   outputAmount: number;
   inputMint: string;
   outputMint: string;
+  originalOutputMint: string; // The token user wanted (for devnet tracking)
   isDevnetMock: boolean;
 }
 
@@ -160,7 +170,9 @@ export async function executeJupiterSwap(
 
 /**
  * Swap SOL to a token via Jupiter
- * Handles devnet fallback to USDC automatically
+ *
+ * DEVNET: Swaps to devnet USDC as demo (mainnet tokens don't exist on devnet)
+ * MAINNET: Real Jupiter swap to the actual token
  */
 export async function swapSolToToken(
   connection: Connection,
@@ -171,15 +183,14 @@ export async function swapSolToToken(
 ): Promise<SwapResult> {
   const lamports = Math.floor(solAmount * LAMPORTS_PER_SOL);
   const SOL_MINT = 'So11111111111111111111111111111111111111112';
+  const originalMint = outputTokenMint.toBase58();
 
   let finalOutputMint = outputTokenMint;
-  let isSubstituted = false;
 
   // On devnet, ALWAYS use USDC for all tokens (mainnet tokens don't exist on devnet)
   if (isDevnet) {
-    console.log(`[JupiterSwap] Devnet mode: Substituting ${outputTokenMint.toBase58()} with devnet USDC`);
+    console.log(`[JupiterSwap] 🧪 DEVNET DEMO: ${outputTokenMint.toBase58().substring(0, 8)}... → devnet USDC`);
     finalOutputMint = DEVNET_USDC;
-    isSubstituted = true;
 
     // Try to execute a real swap on devnet using Jupiter
     try {
@@ -201,6 +212,7 @@ export async function swapSolToToken(
           outputAmount: parseInt(quote.outAmount),
           inputMint: SOL_MINT,
           outputMint: finalOutputMint.toBase58(),
+          originalOutputMint: originalMint,
           isDevnetMock: false,
         };
       }
@@ -215,9 +227,10 @@ export async function swapSolToToken(
     return {
       signature: mockSignature,
       inputAmount: solAmount,
-      outputAmount: solAmount * 1000000, // Mock: assume 1 SOL = 1M USDC tokens
+      outputAmount: Math.floor(solAmount * 1000000), // Mock: assume 1 SOL = 1M USDC tokens
       inputMint: SOL_MINT,
       outputMint: finalOutputMint.toBase58(),
+      originalOutputMint: originalMint,
       isDevnetMock: true,
     };
   }
@@ -252,6 +265,7 @@ export async function swapSolToToken(
       outputAmount: parseInt(quote.outAmount),
       inputMint: SOL_MINT,
       outputMint: finalOutputMint.toBase58(),
+      originalOutputMint: originalMint,
       isDevnetMock: false,
     };
   } catch (error) {
@@ -275,7 +289,7 @@ export async function swapTokenToSol(
 
   // On devnet, use realistic simulation (since we can't actually sell devnet tokens)
   if (isDevnet) {
-    console.log(`[JupiterSwap] Devnet mode: Simulating sale of ${inputTokenMint.toBase58()}`);
+    console.log(`[JupiterSwap] 🧪 DEVNET DEMO: Simulating sale of ${inputTokenMint.toBase58().substring(0, 8)}...`);
 
     // Realistic simulation: random price movement between 80-120% of entry
     // In real scenario, we'd query current price vs entry price
@@ -293,6 +307,7 @@ export async function swapTokenToSol(
       outputAmount: estimatedLamports,
       inputMint: inputTokenMint.toBase58(),
       outputMint: SOL_MINT,
+      originalOutputMint: SOL_MINT,
       isDevnetMock: true,
     };
   }
@@ -328,6 +343,7 @@ export async function swapTokenToSol(
       outputAmount: parseInt(quote.outAmount),
       inputMint: inputTokenMint.toBase58(),
       outputMint: SOL_MINT,
+      originalOutputMint: SOL_MINT,
       isDevnetMock: false,
     };
   } catch (error) {
@@ -338,6 +354,11 @@ export async function swapTokenToSol(
 
 /**
  * Execute multiple swaps for ETF purchase
+ *
+ * Fee breakdown:
+ * - 0.5% goes to ETF creator
+ * - 0.5% goes to platform dev
+ * - Remaining 99% is split across tokens based on percentages
  */
 export async function swapForEtfPurchase(
   connection: Connection,
@@ -348,14 +369,28 @@ export async function swapForEtfPurchase(
   isDevnet: boolean = true
 ): Promise<SwapResult[]> {
   const results: SwapResult[] = [];
-  const listerFee = totalSolAmount * 0.005; // 0.5%
-  const solAfterFees = totalSolAmount - listerFee;
 
-  console.log(`[JupiterSwap] 🎯 Executing ${tokenMints.length} swaps on ${isDevnet ? 'DEVNET' : 'MAINNET'}`);
-  console.log(`[JupiterSwap] Total SOL after fees: ${solAfterFees.toFixed(4)}`);
+  // Calculate fees: 0.5% to creator + 0.5% to dev = 1% total
+  const creatorFee = totalSolAmount * (CREATOR_FEE_BPS / 10000);
+  const devFee = totalSolAmount * (DEV_FEE_BPS / 10000);
+  const totalFees = creatorFee + devFee;
+  const solAfterFees = totalSolAmount - totalFees;
+
+  console.log(`[JupiterSwap] ════════════════════════════════════════`);
+  console.log(`[JupiterSwap] 🎯 ETF PURCHASE on ${isDevnet ? 'DEVNET' : 'MAINNET'}`);
+  console.log(`[JupiterSwap] ════════════════════════════════════════`);
+  console.log(`[JupiterSwap] 💰 Total SOL: ${totalSolAmount.toFixed(4)}`);
+  console.log(`[JupiterSwap] 💸 Creator fee (0.5%): ${creatorFee.toFixed(6)} SOL`);
+  console.log(`[JupiterSwap] 💸 Dev fee (0.5%): ${devFee.toFixed(6)} SOL`);
+  console.log(`[JupiterSwap] 🔄 SOL for swaps: ${solAfterFees.toFixed(4)}`);
+  console.log(`[JupiterSwap] 📊 Tokens: ${tokenMints.length}`);
 
   if (isDevnet) {
-    console.log('[JupiterSwap] 🔄 DEVNET MODE: All tokens will be substituted with devnet USDC (4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU)');
+    console.log(`[JupiterSwap] ════════════════════════════════════════`);
+    console.log(`[JupiterSwap] 🧪 DEVNET DEMO MODE`);
+    console.log(`[JupiterSwap] All tokens → devnet USDC (4zMMC9...)`);
+    console.log(`[JupiterSwap] On mainnet: actual tokens purchased`);
+    console.log(`[JupiterSwap] ════════════════════════════════════════`);
   }
 
   for (let i = 0; i < tokenMints.length; i++) {
@@ -363,7 +398,7 @@ export async function swapForEtfPurchase(
     const percentage = percentages[i];
     const solForToken = solAfterFees * (percentage / 100);
 
-    console.log(`[JupiterSwap] Swap ${i + 1}/${tokenMints.length}: ${solForToken.toFixed(4)} SOL (${percentage}%) for ${tokenMint.toBase58().substring(0, 8)}...`);
+    console.log(`[JupiterSwap] Swap ${i + 1}/${tokenMints.length}: ${solForToken.toFixed(4)} SOL (${percentage}%) → ${tokenMint.toBase58().substring(0, 8)}...`);
 
     try {
       const result = await swapSolToToken(
@@ -375,10 +410,7 @@ export async function swapForEtfPurchase(
       );
 
       results.push(result);
-      console.log(`[JupiterSwap] ✅ Swap ${i + 1}/${tokenMints.length} completed: ${result.signature.substring(0, 20)}...`);
-      if (result.outputMint !== tokenMint.toBase58()) {
-        console.log(`[JupiterSwap] 🔄 Token substituted: ${tokenMint.toBase58().substring(0, 8)}... → ${result.outputMint.substring(0, 8)}...`);
-      }
+      console.log(`[JupiterSwap] ✅ Swap ${i + 1} done: ${result.signature.substring(0, 20)}...`);
     } catch (error) {
       console.error(`[JupiterSwap] ❌ Swap ${i + 1} failed:`, error);
       // Continue with other swaps even if one fails
@@ -388,12 +420,17 @@ export async function swapForEtfPurchase(
         outputAmount: 0,
         inputMint: 'So11111111111111111111111111111111111111112',
         outputMint: tokenMint.toBase58(),
+        originalOutputMint: tokenMint.toBase58(),
         isDevnetMock: false,
       });
     }
   }
 
-  console.log(`[JupiterSwap] 🎉 All swaps completed: ${results.filter(r => r.signature !== 'FAILED').length}/${results.length} successful`);
+  const successCount = results.filter(r => r.signature !== 'FAILED').length;
+  console.log(`[JupiterSwap] ════════════════════════════════════════`);
+  console.log(`[JupiterSwap] 🎉 Complete: ${successCount}/${results.length} swaps successful`);
+  console.log(`[JupiterSwap] ════════════════════════════════════════`);
+
   return results;
 }
 
@@ -435,6 +472,7 @@ export async function swapForEtfSell(
         outputAmount: 0,
         inputMint: token.mint,
         outputMint: 'So11111111111111111111111111111111111111112',
+        originalOutputMint: 'So11111111111111111111111111111111111111112',
         isDevnetMock: false,
       });
     }

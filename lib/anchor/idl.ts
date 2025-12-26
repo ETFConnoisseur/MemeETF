@@ -3,7 +3,7 @@
 
 // Program ID - Deployed on Solana devnet
 // To redeploy: cd programs/mtf-etf && anchor build && anchor deploy --provider.cluster devnet
-export const PROGRAM_ID = '6ZuD488g1DR652G2zmBsr7emXuQXQ26ZbkFZPyRyr627';
+export const PROGRAM_ID = 'CwwrCDfrsuA2C4YPiobU82ZA9wSWrecyLbbvP35QXmyo';
 
 export const IDL = {
   "version": "0.1.0",
@@ -239,6 +239,6 @@ export const IDL = {
     }
   ],
   "metadata": {
-    "address": "6ZuD488g1DR652G2zmBsr7emXuQXQ26ZbkFZPyRyr627"
+    "address": "CwwrCDfrsuA2C4YPiobU82ZA9wSWrecyLbbvP35QXmyo"
   }
 };

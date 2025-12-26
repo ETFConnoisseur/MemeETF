@@ -16,7 +16,7 @@ import { createHash } from 'crypto';
 import { swapForEtfPurchase, type SwapResult } from './jupiterSwap';
 
 // Program ID - deployed on devnet
-export const PROGRAM_ID = new PublicKey('6ZuD488g1DR652G2zmBsr7emXuQXQ26ZbkFZPyRyr627');
+export const PROGRAM_ID = new PublicKey('CwwrCDfrsuA2C4YPiobU82ZA9wSWrecyLbbvP35QXmyo');
 
 // Anchor instruction discriminators
 function getDiscriminator(name: string): Buffer {

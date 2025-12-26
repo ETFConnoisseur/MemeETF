@@ -23,7 +23,7 @@ echo "mtf-secret-key-32chars-here!!" | vercel env add ENCRYPTION_KEY production
 
 echo "https://api.devnet.solana.com" | vercel env add SOLANA_DEVNET_RPC_URL production
 
-echo "6ZuD488g1DR652G2zmBsr7emXuQXQ26ZbkFZPyRyr627" | vercel env add PROGRAM_ID production
+echo "CwwrCDfrsuA2C4YPiobU82ZA9wSWrecyLbbvP35QXmyo" | vercel env add PROGRAM_ID production
 
 echo "MHc5em1SSlg4X2lhVFZzTTJ5Z3I6MTpjaQ" | vercel env add X_CLIENT_ID production
 

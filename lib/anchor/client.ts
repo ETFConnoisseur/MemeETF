@@ -6,7 +6,7 @@ import { getConnection, getKeypairFromPrivateKey } from '../solana/wallet';
 export { getKeypairFromPrivateKey } from '../solana/wallet';
 
 // Hardcoded Program ID - deployed on Solana devnet
-const PROGRAM_ID_STRING = '6ZuD488g1DR652G2zmBsr7emXuQXQ26ZbkFZPyRyr627';
+const PROGRAM_ID_STRING = 'CwwrCDfrsuA2C4YPiobU82ZA9wSWrecyLbbvP35QXmyo';
 
 // Export for use elsewhere
 export const PROGRAM_ID = PROGRAM_ID_STRING;
