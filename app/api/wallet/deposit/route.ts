@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
     await pool.query(
       `INSERT INTO deposits (user_id, amount, tx_signature, from_address, to_address, status, confirmed_at)
        VALUES ($1, $2, $3, $4, $5, 'confirmed', CURRENT_TIMESTAMP)`,
-      [userId, amount, txHash, address || 'unknown', protocolWalletAddress]
+      [userId, amount, txHash, userId, protocolWalletAddress]
     );
 
     // Also record in transactions table for compatibility
