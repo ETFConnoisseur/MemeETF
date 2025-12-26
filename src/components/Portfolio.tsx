@@ -4,9 +4,11 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { apiGet, apiPost } from '../lib/api';
 import type { PortfolioResponse, PortfolioHolding } from '../types';
+import { useNetwork } from '../contexts/NetworkContext';
 
 export function Portfolio() {
   const { publicKey } = useWallet();
+  const { network } = useNetwork();
   const [searchQuery, setSearchQuery] = useState('');
   const [showHidden, setShowHidden] = useState(false);
   const [portfolio, setPortfolio] = useState<PortfolioResponse | null>(null);
@@ -34,7 +36,7 @@ export function Portfolio() {
       try {
         setLoading(true);
         const data = await apiGet<PortfolioResponse>(
-          `/api/portfolio?userId=${publicKey.toBase58()}`,
+          `/api/portfolio?userId=${publicKey.toBase58()}&network=${network}`,
           {
             success: true,
             holdings: [],
@@ -63,7 +65,7 @@ export function Portfolio() {
     };
 
     fetchPortfolio();
-  }, [publicKey]);
+  }, [publicKey, network]);
 
   const filteredHoldings = portfolio?.holdings.filter((holding) => {
     if (!searchQuery) return true;
@@ -75,10 +77,10 @@ export function Portfolio() {
 
   const fetchPortfolioData = async () => {
     if (!publicKey) return;
-    
+
     try {
       const data = await apiGet<PortfolioResponse>(
-        `/api/portfolio?userId=${publicKey.toBase58()}`,
+        `/api/portfolio?userId=${publicKey.toBase58()}&network=${network}`,
         {
           success: true,
           holdings: [],
@@ -104,6 +106,7 @@ export function Portfolio() {
       const response = await apiPost<{ success: boolean; error?: string; newProtocolBalance?: number; realizedPnL?: number }>('/api/investments/sell', {
         investmentId,
         userId: publicKey.toBase58(),
+        network: network,
       });
 
       if (response.success) {
@@ -132,7 +135,7 @@ export function Portfolio() {
       </div>
 
       {!publicKey ? (
-        <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-12 text-center">
+        <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-12 text-center">
           <p className="text-white/60 text-lg">Connect your wallet to view your portfolio</p>
         </div>
       ) : (
@@ -140,7 +143,7 @@ export function Portfolio() {
           {/* Balance Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
             {/* Balance Card */}
-            <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-8">
+            <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-8">
               <h2 className="text-xl mb-8">Portfolio</h2>
               <div className="grid grid-cols-2 gap-8">
                 <div>
@@ -171,7 +174,7 @@ export function Portfolio() {
             </div>
 
             {/* Realized PNL Card */}
-            <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-8">
+            <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-8">
               <h2 className="text-xl mb-4">Realized PNL</h2>
               <p className={`text-4xl mb-6 ${(portfolio?.realizedPnl || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                 {loading ? '...' : `${(portfolio?.realizedPnl || 0) >= 0 ? '+' : ''}${(portfolio?.realizedPnl || 0).toFixed(4)} SOL`}
@@ -183,7 +186,7 @@ export function Portfolio() {
           </div>
 
           {/* Active Positions */}
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-8">
+          <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-8">
             <h2 className="text-3xl mb-8 text-center">Active Positions</h2>
             
             {/* Search and Filter */}
@@ -195,7 +198,7 @@ export function Portfolio() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search by name or address"
-                  className="w-full pl-12 pr-4 py-3 rounded-xl bg-black/40 border border-white/10 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
+                  className="w-full pl-12 pr-4 py-3 rounded-xl border border-white/10 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
                 />
               </div>
               
@@ -284,7 +287,7 @@ export function Portfolio() {
                 {/* Sell Modal */}
                 {showSellModal && (
                   <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-                    <div className="bg-gray-900 border border-white/10 rounded-2xl p-8 max-w-md w-full mx-4">
+                    <div className="border border-white/10 rounded-2xl p-8 max-w-md w-full mx-4">
                       {(() => {
                         const holding = filteredHoldings.find((h: any) => h.investmentId === showSellModal);
                         const holdingAny = holding as any;

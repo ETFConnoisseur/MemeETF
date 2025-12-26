@@ -5,6 +5,7 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const userId = searchParams.get('userId');
+    const network = searchParams.get('network') || 'devnet';
 
     if (!userId) {
       return NextResponse.json(
@@ -25,36 +26,36 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Get unclaimed fees (total_claimable) - fees earned as ETF creator
+    // Get unclaimed fees (total_claimable) - fees earned as ETF creator (for the current network)
     const unclaimedResult = await pool.query(
       `SELECT COALESCE(SUM(f.lister_fee), 0) as total
        FROM fees f
        JOIN etf_listings e ON f.etf_id = e.id
-       WHERE e.creator = $1 AND f.paid_out = FALSE`,
-      [userId]
+       WHERE e.creator = $1 AND f.paid_out = FALSE AND e.network = $2`,
+      [userId, network]
     );
     const totalClaimable = parseFloat(unclaimedResult.rows[0].total || 0);
 
-    // Get claimed fees (total_claimed)
+    // Get claimed fees (total_claimed) (for the current network)
     const claimedResult = await pool.query(
       `SELECT COALESCE(SUM(f.lister_fee), 0) as total
        FROM fees f
        JOIN etf_listings e ON f.etf_id = e.id
-       WHERE e.creator = $1 AND f.paid_out = TRUE`,
-      [userId]
+       WHERE e.creator = $1 AND f.paid_out = TRUE AND e.network = $2`,
+      [userId, network]
     );
     const totalClaimed = parseFloat(claimedResult.rows[0].total || 0);
 
-    // Get fee history for chart
+    // Get fee history for chart (for the current network)
     const historyResult = await pool.query(
-      `SELECT f.created_at as date, f.lister_fee as amount, 
+      `SELECT f.created_at as date, f.lister_fee as amount,
               CASE WHEN f.paid_out THEN 'claimed' ELSE 'earned' END as type
        FROM fees f
        JOIN etf_listings e ON f.etf_id = e.id
-       WHERE e.creator = $1
+       WHERE e.creator = $1 AND e.network = $2
        ORDER BY f.created_at DESC
        LIMIT 50`,
-      [userId]
+      [userId, network]
     );
 
     const history = historyResult.rows.map(row => ({
@@ -63,17 +64,17 @@ export async function GET(request: NextRequest) {
       type: row.type,
     }));
 
-    // Get individual rewards by ETF
+    // Get individual rewards by ETF (for the current network)
     const rewardsResult = await pool.query(
-      `SELECT e.id, e.name, 
+      `SELECT e.id, e.name,
               COALESCE(SUM(CASE WHEN f.paid_out = FALSE THEN f.lister_fee ELSE 0 END), 0) as unclaimed,
               COALESCE(SUM(f.lister_fee), 0) as total_earned
        FROM etf_listings e
        LEFT JOIN fees f ON e.id = f.etf_id
-       WHERE e.creator = $1
+       WHERE e.creator = $1 AND e.network = $2
        GROUP BY e.id, e.name
        ORDER BY total_earned DESC`,
-      [userId]
+      [userId, network]
     );
 
     const rewards = rewardsResult.rows.map(row => ({

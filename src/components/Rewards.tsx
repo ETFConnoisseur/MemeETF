@@ -10,6 +10,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { apiGet, apiPost } from '../lib/api';
+import { useNetwork } from '../contexts/NetworkContext';
 
 interface RewardHistoryItem {
   date: string;
@@ -35,6 +36,7 @@ const defaultRewards: RewardsData = {
 
 export function Rewards() {
   const { publicKey } = useWallet();
+  const { network } = useNetwork();
   const [isHovering, setIsHovering] = useState(false);
   const [rewards, setRewards] = useState<RewardsData>(defaultRewards);
   const [loading, setLoading] = useState(true);
@@ -53,7 +55,7 @@ export function Rewards() {
         setLoading(true);
         setError(null);
         const data = await apiGet<RewardsData>(
-          `/api/rewards?userId=${publicKey.toBase58()}`,
+          `/api/rewards?userId=${publicKey.toBase58()}&network=${network}`,
           defaultRewards
         );
         // Ensure all required fields exist
@@ -74,7 +76,7 @@ export function Rewards() {
     };
 
     fetchRewards();
-  }, [publicKey]);
+  }, [publicKey, network]);
 
   const handleClaim = async () => {
     if (!publicKey || rewards.total_claimable === 0) return;
@@ -83,7 +85,7 @@ export function Rewards() {
       setClaiming(true);
       await apiPost('/api/rewards/claim', { userId: publicKey.toBase58() });
       // Refresh rewards after claiming
-      const data = await apiGet<RewardsData>(`/api/rewards?userId=${publicKey.toBase58()}`, defaultRewards);
+      const data = await apiGet<RewardsData>(`/api/rewards?userId=${publicKey.toBase58()}&network=${network}`, defaultRewards);
       setRewards({
         success: data?.success ?? true,
         total_claimable: data?.total_claimable ?? 0,
@@ -106,13 +108,13 @@ export function Rewards() {
   return (
     <div className="max-w-7xl mx-auto px-6 lg:px-8 py-12">
       {!publicKey ? (
-        <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-12 text-center">
+        <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-12 text-center">
           <p className="text-white/60 text-lg">Connect your wallet to view rewards</p>
         </div>
       ) : (
         <>
           {/* Claim Rewards Section */}
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-12 mb-8 transition-all duration-300 hover:border-white/20 hover:bg-white/[0.07]">
+          <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-12 mb-8 transition-all duration-300 hover:border-white/20">
             <div className="text-center space-y-8">
               <div className="flex items-center justify-center gap-2">
                 <h2 className="text-2xl">Claim Rewards</h2>
@@ -125,7 +127,7 @@ export function Rewards() {
                   <div className="w-64 h-64 rounded-full bg-emerald-500/20 blur-3xl"></div>
                 </div>
                 <div
-                  className={`relative w-56 h-56 rounded-full border-2 flex items-center justify-center bg-black/60 transition-all duration-500 ${
+                  className={`relative w-56 h-56 rounded-full border-2 flex items-center justify-center transition-all duration-500 ${
                     isHovering ? 'border-emerald-500/50 scale-105' : 'border-emerald-500/30'
                   }`}
                   onMouseEnter={() => setIsHovering(true)}
@@ -154,7 +156,7 @@ export function Rewards() {
           {/* Bottom Section */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* SOL Rewards Generated */}
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-8 transition-all duration-300 hover:border-white/20 hover:bg-white/[0.07]">
+          <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-8 transition-all duration-300 hover:border-white/20">
             <h3 className="text-xl mb-6">SOL Rewards Generated</h3>
 
             <div className="space-y-6">
@@ -203,7 +205,7 @@ export function Rewards() {
           </div>
 
           {/* Rewards History */}
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-8 transition-all duration-300 hover:border-white/20 hover:bg-white/[0.07]">
+          <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-8 transition-all duration-300 hover:border-white/20">
             <div className="flex items-center gap-2 mb-6">
               <h3 className="text-xl">Rewards History</h3>
               <span className="text-sm text-white/40">({rewards.history?.length || 0})</span>

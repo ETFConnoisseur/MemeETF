@@ -6,6 +6,7 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const filter = searchParams.get('filter') || 'all';
     const creator = searchParams.get('creator');
+    const network = searchParams.get('network') || 'devnet';
     const limit = parseInt(searchParams.get('limit') || '100');
 
     const pool = getDatabasePool();
@@ -19,13 +20,13 @@ export async function GET(request: NextRequest) {
     let params: any[];
 
     if (creator) {
-      // Filter by creator wallet address
-      query = `SELECT * FROM etf_listings WHERE creator = $1 ORDER BY created_at DESC LIMIT $2`;
-      params = [creator, limit];
+      // Filter by creator wallet address and network
+      query = `SELECT * FROM etf_listings WHERE creator = $1 AND network = $2 ORDER BY created_at DESC LIMIT $3`;
+      params = [creator, network, limit];
     } else {
-      // Get all ETFs
-      query = `SELECT * FROM etf_listings ORDER BY created_at DESC LIMIT $1`;
-      params = [limit];
+      // Get all ETFs for the network
+      query = `SELECT * FROM etf_listings WHERE network = $1 ORDER BY created_at DESC LIMIT $2`;
+      params = [network, limit];
     }
 
     let result;

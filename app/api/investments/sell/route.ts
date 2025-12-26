@@ -2,20 +2,26 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDatabasePool } from '@/lib/database/connection';
 import { decryptPrivateKey, getKeypairFromPrivateKey, getConnection } from '@/lib/solana/wallet';
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { swapSolToToken } from '@/lib/solana/jupiterSwap';
+import { swapForEtfSell } from '@/lib/solana/jupiterSwap';
+import { withTransaction, addProtocolBalance, recordTransaction } from '@/lib/database/transactions';
 
 /**
  * POST /api/investments/sell
  * Sell an ETF position - swaps all tokens back to SOL
- * Returns SOL to protocol wallet balance
+ * SAFE IMPLEMENTATION: Execute swaps FIRST, then atomically update database
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { investmentId, userId } = body;
+    const { investmentId, userId, network = 'devnet' } = body;
 
+    // Validation
     if (!investmentId || !userId) {
       return NextResponse.json({ error: 'Investment ID and user ID required' }, { status: 400 });
+    }
+
+    if (network !== 'devnet' && network !== 'mainnet-beta') {
+      return NextResponse.json({ error: 'Invalid network. Must be devnet or mainnet-beta' }, { status: 400 });
     }
 
     const pool = getDatabasePool();
@@ -23,7 +29,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Database not configured' }, { status: 503 });
     }
 
-    // Get investment details
+    // Get investment details with tokens
     const investmentResult = await pool.query(
       `SELECT i.*, e.name as etf_name
        FROM investments i
@@ -60,107 +66,167 @@ export async function POST(request: NextRequest) {
     const privateKey = decryptPrivateKey(walletResult.rows[0].encrypted_private_key);
     const protocolKeypair = getKeypairFromPrivateKey(privateKey);
 
-    const connection = getConnection('devnet');
-    const isDevnet = true; // TODO: Make dynamic
+    // Connect to correct network
+    const connection = getConnection(network);
+    const isDevnet = network === 'devnet';
 
     console.log('[Sell] 🚀 Starting ETF sell...');
     console.log('[Sell] Investment:', investmentId);
     console.log('[Sell] ETF:', investment.etf_name);
     console.log('[Sell] Tokens to sell:', tokensPurchased.length);
+    console.log('[Sell] Network:', network);
 
-    // Swap each token back to SOL
-    let totalSOLReceived = 0;
-    const sellSwaps = [];
+    // STEP 1: Execute all token->SOL swaps FIRST (before any database changes)
+    const tokensToSell = tokensPurchased.map((t: any) => ({
+      mint: t.actualMint || t.mint, // Use actualMint if it exists (devnet substitution)
+      amount: parseFloat(t.amount),
+      symbol: t.symbol
+    }));
 
-    for (const token of tokensPurchased) {
-      try {
-        // For devnet mock, we'll just estimate the SOL value
-        // In production mainnet, this would execute real Jupiter swaps
-        if (isDevnet) {
-          // Mock: assume we get back the original SOL amount proportionally
-          const estimatedSOL = (token.weight / 100) * parseFloat(investment.sol_invested);
-          totalSOLReceived += estimatedSOL;
+    let sellSwaps;
+    try {
+      sellSwaps = await swapForEtfSell(
+        connection,
+        protocolKeypair,
+        tokensToSell,
+        isDevnet
+      );
 
-          sellSwaps.push({
-            tokenMint: token.mint,
-            tokenSymbol: token.symbol,
-            tokenAmount: token.amount,
-            solReceived: estimatedSOL,
-            signature: `DEVNET_SELL_MOCK_${Date.now()}_${sellSwaps.length}`,
-            isDevnetMock: true,
-          });
-
-          console.log(`[Sell] ✅ Mock sold ${token.symbol}: ~${estimatedSOL.toFixed(4)} SOL`);
-        } else {
-          // TODO: Real Jupiter swap from token to SOL on mainnet
-          // This would use Jupiter to swap token -> USDC -> SOL
-          throw new Error('Mainnet token selling not yet implemented');
-        }
-      } catch (swapError: any) {
-        console.error(`[Sell] ❌ Failed to swap ${token.symbol}:`, swapError);
-        sellSwaps.push({
-          tokenMint: token.mint,
-          tokenSymbol: token.symbol,
-          tokenAmount: token.amount,
-          solReceived: 0,
-          signature: 'FAILED',
-          error: swapError.message,
-        });
-      }
+      console.log('[Sell] ✅ All swaps completed successfully:', sellSwaps.length);
+    } catch (swapError: any) {
+      console.error('[Sell] ❌ Swap execution failed:', swapError);
+      // Swaps failed, but no database changes made yet - safe to return error
+      return NextResponse.json({
+        error: `Failed to execute swaps: ${swapError.message}`,
+        details: process.env.NODE_ENV === 'development' ? swapError.toString() : undefined
+      }, { status: 500 });
     }
+
+    // Calculate total SOL received from swaps
+    const totalSOLReceived = sellSwaps.reduce((sum, swap) => {
+      return sum + (swap.outputAmount / LAMPORTS_PER_SOL);
+    }, 0);
 
     // Calculate fees (0.5% to lister)
     const listerFee = totalSOLReceived * 0.005;
     const solAfterFees = totalSOLReceived - listerFee;
 
-    // Add SOL back to protocol balance
-    await pool.query(
-      'UPDATE users SET protocol_sol_balance = protocol_sol_balance + $1 WHERE wallet_address = $2',
-      [solAfterFees, userId]
-    );
+    console.log('[Sell] Total SOL from swaps:', totalSOLReceived.toFixed(4));
+    console.log('[Sell] Lister fee:', listerFee.toFixed(4));
+    console.log('[Sell] SOL after fees:', solAfterFees.toFixed(4));
 
-    // Calculate current market cap for sell tracking
-    const currentMC = 0; // TODO: Fetch current MC from prices
+    // STEP 2: ALL swaps succeeded - now atomically update database
+    try {
+      await withTransaction(pool, async (client) => {
+        // Add SOL back to protocol balance
+        await addProtocolBalance(client, userId, solAfterFees);
 
-    // Mark investment as sold
-    await pool.query(
-      `UPDATE investments
-       SET is_sold = TRUE,
-           sold_at = NOW(),
-           sol_received = $1,
-           sell_mc = $2
-       WHERE id = $3`,
-      [solAfterFees, currentMC, investmentId]
-    );
+        // Mark investment as sold
+        await client.query(
+          `UPDATE investments
+           SET is_sold = TRUE,
+               sold_at = NOW(),
+               sol_received = $1,
+               sell_mc = $2
+           WHERE id = $3`,
+          [solAfterFees, 0, investmentId] // TODO: Fetch real market cap
+        );
 
-    // Record sell swaps
-    for (const swap of sellSwaps) {
-      await pool.query(
-        `INSERT INTO investment_swaps (
-          investment_id, token_mint, token_symbol, token_name,
-          weight, sol_amount, token_amount, tx_signature,
-          swap_type, is_devnet_mock
-        )
-        VALUES ($1, $2, $3, $4, 0, $5, $6, $7, 'sell', $8)`,
-        [
-          investmentId,
-          swap.tokenMint,
-          swap.tokenSymbol,
-          swap.tokenSymbol,
-          swap.solReceived,
-          swap.tokenAmount,
-          swap.signature,
-          swap.isDevnetMock || false,
-        ]
-      );
+        // Record all sell swaps
+        for (let i = 0; i < sellSwaps.length; i++) {
+          const swap = sellSwaps[i];
+          const token = tokensPurchased[i];
+
+          await client.query(
+            `INSERT INTO investment_swaps (
+              investment_id, token_mint, actual_mint, token_symbol, token_name,
+              weight, sol_amount, token_amount, tx_signature,
+              swap_type, is_devnet_mock
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'sell', $10)`,
+            [
+              investmentId,
+              token.mint,
+              swap.outputMint, // SOL mint
+              token.symbol,
+              token.symbol,
+              token.weight || 0,
+              swap.outputAmount / LAMPORTS_PER_SOL,
+              swap.inputAmount,
+              swap.signature,
+              swap.isDevnetMock || false,
+            ]
+          );
+        }
+
+        // Record lister fee
+        await client.query(
+          `INSERT INTO fees (etf_id, lister_fee, platform_fee, paid_out)
+           VALUES ($1, $2, 0, FALSE)`,
+          [investment.etf_id, listerFee]
+        );
+
+        // Record transaction
+        await recordTransaction(client, {
+          userId,
+          type: 'sell',
+          amount: solAfterFees,
+          txHash: sellSwaps[0]?.signature || 'MULTIPLE_SWAPS',
+          status: 'completed',
+          metadata: {
+            investment_id: investmentId,
+            total_sol_received: totalSOLReceived,
+            lister_fee: listerFee,
+            network: network,
+            swap_signatures: sellSwaps.map(s => s.signature)
+          }
+        });
+      });
+
+      console.log('[Sell] ✅ Database updated successfully');
+    } catch (dbError: any) {
+      // CRITICAL: Swaps succeeded but database update failed
+      console.error('[Sell] ❌ CRITICAL: Swaps completed but database update failed!');
+      console.error('[Sell] Swap signatures:', sellSwaps.map(s => s.signature));
+      console.error('[Sell] Database error:', dbError);
+      console.error('[Sell] ACTION REQUIRED: Manual reconciliation needed');
+
+      // Try to log this critical error
+      try {
+        await pool.query(
+          `INSERT INTO transactions (user_id, type, amount, tx_hash, status, metadata)
+           VALUES ($1, 'sell', $2, $3, 'pending_reconciliation', $4)`,
+          [
+            userId,
+            solAfterFees,
+            sellSwaps[0]?.signature || 'MULTIPLE_SWAPS',
+            JSON.stringify({
+              error: dbError.message,
+              timestamp: new Date().toISOString(),
+              needs_manual_review: true,
+              swap_signatures: sellSwaps.map(s => s.signature),
+              investment_id: investmentId,
+              network: network
+            })
+          ]
+        );
+      } catch (logError) {
+        console.error('[Sell] Could not log to transactions:', logError);
+      }
+
+      return NextResponse.json({
+        success: false,
+        error: 'Sell swaps completed but database update failed. Please contact support.',
+        swapSignatures: sellSwaps.map(s => s.signature),
+        requiresReconciliation: true,
+        explorerUrls: sellSwaps.map(s => ({
+          signature: s.signature,
+          url: network === 'mainnet-beta'
+            ? `https://solscan.io/tx/${s.signature}`
+            : `https://solscan.io/tx/${s.signature}?cluster=devnet`
+        }))
+      }, { status: 500 });
     }
-
-    // Record lister fee
-    await pool.query(
-      `INSERT INTO fees (etf_id, lister_fee, platform_fee, paid_out)
-       VALUES ($1, $2, 0, FALSE)`,
-      [investment.etf_id, listerFee]
-    );
 
     // Get updated protocol balance
     const updatedUser = await pool.query(
@@ -175,20 +241,30 @@ export async function POST(request: NextRequest) {
     console.log('[Sell] After fees:', solAfterFees.toFixed(4));
     console.log('[Sell] Realized P&L:', realizedPnL.toFixed(4), 'SOL');
 
+    // Return response matching frontend expectations
     return NextResponse.json({
       success: true,
+      txHash: sellSwaps[0]?.signature || null,
+      swapSignatures: sellSwaps.map(s => s.signature),
       totalSOLReceived,
       solAfterFees,
       fees: listerFee,
       realizedPnL,
-      sellSwaps,
       newProtocolBalance: parseFloat(updatedUser.rows[0].protocol_sol_balance),
+      network: network,
+      explorerUrls: sellSwaps.map(s => ({
+        signature: s.signature,
+        url: network === 'mainnet-beta'
+          ? `https://solscan.io/tx/${s.signature}`
+          : `https://solscan.io/tx/${s.signature}?cluster=devnet`
+      }))
     });
 
   } catch (error: any) {
-    console.error('[Sell] ❌ Error:', error);
+    console.error('[Sell] ❌ Unexpected error:', error);
     return NextResponse.json({
-      error: error.message || 'Failed to sell investment'
+      error: error.message || 'Failed to sell investment',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     }, { status: 500 });
   }
 }

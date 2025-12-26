@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, Plus } from 'lucide-react';
 import { apiGet } from '../lib/api';
 import type { ETFsResponse, ETF } from '../types';
+import { useNetwork } from '../contexts/NetworkContext';
 
 interface DashboardProps {
   onNavigate: (tab: string, data?: any) => void;
@@ -22,6 +23,7 @@ function formatMarketCap(value: number): string {
 }
 
 export function Dashboard({ onNavigate }: DashboardProps) {
+  const { network } = useNetwork();
   const [featuredETFs, setFeaturedETFs] = useState<ETF[]>([]);
   const [newestETFs, setNewestETFs] = useState<ETF[]>([]);
   const [stats, setStats] = useState({ totalETFs: 0, totalVolume: 0, activeTraders: 0 });
@@ -31,7 +33,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [network]);
 
   useEffect(() => {
     if (newestETFs.length > 0) {
@@ -42,10 +44,10 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   async function fetchData() {
     try {
       setLoading(true);
-      
+
       // Fetch ETFs with fallback to empty data
       const response = await apiGet<ETFsResponse>(
-        '/api/etfs?limit=10',
+        `/api/etfs?limit=10&network=${network}`,
         { success: true, etfs: [] }
       );
       
@@ -155,15 +157,15 @@ export function Dashboard({ onNavigate }: DashboardProps) {
 
       {/* Stats Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-        <div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm p-6">
+        <div className="rounded-xl border border-white/10 backdrop-blur-sm p-6">
           <p className="text-sm text-white/60 mb-2">Total ETFs</p>
           <p className="text-3xl">{loading ? '...' : stats.totalETFs}</p>
         </div>
-        <div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm p-6">
+        <div className="rounded-xl border border-white/10 backdrop-blur-sm p-6">
           <p className="text-sm text-white/60 mb-2">Total Volume</p>
           <p className="text-3xl">{loading ? '...' : formatMarketCap(stats.totalVolume)}</p>
         </div>
-        <div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm p-6">
+        <div className="rounded-xl border border-white/10 backdrop-blur-sm p-6">
           <p className="text-sm text-white/60 mb-2">Active Traders</p>
           <p className="text-3xl">{loading ? '...' : stats.activeTraders}</p>
         </div>
@@ -185,13 +187,13 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         </div>
 
         {loading ? (
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-12">
+          <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-12">
             <div className="text-center text-white/40">Loading...</div>
           </div>
         ) : featuredETFs.length === 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-12">
+          <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-12">
             <div className="text-center space-y-6">
-              <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mx-auto">
+              <div className="w-16 h-16 rounded-full border border-white/10 flex items-center justify-center mx-auto">
                 <Plus className="w-8 h-8 text-white/40" />
               </div>
               <p className="text-white/40 text-lg">No featured ETFs yet</p>
@@ -208,10 +210,10 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             {featuredETFs.map((etf) => {
               const return24h = get24hReturn(etf);
               return (
-                <div 
+                <div
                   key={etf.id}
                   onClick={() => handleETFClick(etf)}
-                  className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-6 hover:bg-white/10 transition-all cursor-pointer group"
+                  className="rounded-2xl border border-white/10 backdrop-blur-sm p-6 hover:border-white/20 transition-all cursor-pointer group"
                 >
                   <div className="flex items-start justify-between mb-3">
                     <h3 className="text-xl">{etf.name}</h3>
@@ -260,11 +262,11 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         </div>
 
         {loading ? (
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-12">
+          <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-12">
             <div className="text-center text-white/40">Loading...</div>
           </div>
         ) : newestETFs.length === 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-12">
+          <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-12">
             <div className="text-center">
               <p className="text-white/40 text-lg">No listings yet</p>
             </div>
@@ -274,10 +276,10 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             {newestETFs.map((etf) => {
               const return24h = get24hReturn(etf);
               return (
-                <div 
+                <div
                   key={etf.id}
                   onClick={() => handleETFClick(etf)}
-                  className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm p-6 hover:bg-white/10 transition-all cursor-pointer"
+                  className="rounded-xl border border-white/10 backdrop-blur-sm p-6 hover:border-white/20 transition-all cursor-pointer"
                 >
                   <div className="flex items-start justify-between mb-2">
                     <h3 className="text-lg">{etf.name}</h3>
@@ -302,7 +304,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       </div>
 
       {/* CTA Section */}
-      <div className="rounded-2xl border border-emerald-500/50 bg-black/60 backdrop-blur-sm p-10">
+      <div className="rounded-2xl border border-emerald-500/50 backdrop-blur-sm p-10">
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="space-y-2 text-center md:text-left">
             <h2 className="text-2xl">Ready to create your own ETF?</h2>

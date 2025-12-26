@@ -12,7 +12,7 @@ import { ListNewETF } from './components/ListNewETF';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer, useToast } from './components/TransactionToast';
 import { ToastProvider } from './contexts/ToastContext';
-import { NetworkProvider } from '../lib/contexts/NetworkContext';
+import { NetworkProvider } from './contexts/NetworkContext';
 
 interface NavigationData {
   etfId?: string;

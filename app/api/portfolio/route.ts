@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const userId = searchParams.get('userId');
+    const network = searchParams.get('network') || 'devnet';
 
     if (!userId) {
       return NextResponse.json(
@@ -59,16 +60,16 @@ export async function GET(request: NextRequest) {
       ? parseFloat(userResult.rows[0].protocol_sol_balance || '0')
       : 0;
 
-    // Get all active ETF positions (not sold)
+    // Get all active ETF positions (not sold) for the current network
     let investmentsResult;
     try {
       investmentsResult = await pool.query(
         `SELECT i.*, e.name as etf_name, e.creator, e.tokens as etf_tokens
          FROM investments i
          JOIN etf_listings e ON i.etf_id = e.id
-         WHERE i.user_id = $1 AND i.is_sold = FALSE
+         WHERE i.user_id = $1 AND i.is_sold = FALSE AND i.network = $2
          ORDER BY i.created_at DESC`,
-        [userId]
+        [userId, network]
       );
     } catch (queryError: any) {
       console.error('[Portfolio API] Investments query failed:', queryError);
@@ -158,24 +159,24 @@ export async function GET(request: NextRequest) {
     const totalInvestedSOL = holdings.reduce((sum, h) => sum + h.solInvested, 0);
     const totalUnrealizedPnlSOL = holdings.reduce((sum, h) => sum + h.unrealizedPnl, 0);
 
-    // Get realized P/L from sold investments
+    // Get realized P/L from sold investments (for the current network)
     const soldInvestmentsResult = await pool.query(
       `SELECT
          COALESCE(SUM(sol_received), 0) as total_received,
          COALESCE(SUM(sol_invested), 0) as total_invested_sold
        FROM investments
-       WHERE user_id = $1 AND is_sold = TRUE`,
-      [userId]
+       WHERE user_id = $1 AND is_sold = TRUE AND network = $2`,
+      [userId, network]
     );
 
     const totalReceived = parseFloat(soldInvestmentsResult.rows[0].total_received) || 0;
     const totalInvestedSold = parseFloat(soldInvestmentsResult.rows[0].total_invested_sold) || 0;
     const realizedPnlSOL = totalReceived - totalInvestedSold;
 
-    // Get recent transaction history
+    // Get recent transaction history (for the current network)
     const transactionsResult = await pool.query(
-      `SELECT * FROM transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`,
-      [userId]
+      `SELECT * FROM transactions WHERE user_id = $1 AND (network = $2 OR network IS NULL) ORDER BY created_at DESC LIMIT 50`,
+      [userId, network]
     );
 
     const transactions = transactionsResult.rows.map(row => ({

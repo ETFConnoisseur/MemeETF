@@ -10,10 +10,10 @@ export interface TransactionToastData {
   swapSignatures?: string[];
   tokenSubstitutions?: Array<{
     originalToken: string;
-    finalToken: string;
+    actualToken: string;
     isSubstituted: boolean;
-    percentage: number;
-    txSignature: string | null;
+    symbol: string;
+    weight: number;
   }>;
   network?: 'mainnet' | 'devnet';
 }
@@ -56,7 +56,7 @@ export function TransactionToast({ toast, onClose }: TransactionToastProps) {
   };
 
   return (
-    <div className="bg-black/90 backdrop-blur-sm border border-white/20 rounded-xl p-4 shadow-2xl min-w-[400px] max-w-[500px]">
+    <div className="backdrop-blur-sm border border-white/20 rounded-xl p-4 shadow-2xl min-w-[400px] max-w-[500px]">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 flex-1">
           {getIcon()}
@@ -105,24 +105,14 @@ export function TransactionToast({ toast, onClose }: TransactionToastProps) {
                             {swap.isSubstituted && (
                               <span className="text-yellow-400 mr-1">⚠️ Substituted:</span>
                             )}
-                            {swap.percentage.toFixed(1)}% allocation
+                            {swap.weight.toFixed(1)}% allocation - {swap.symbol}
                           </div>
-                          {swap.txSignature && (
-                            <a
-                              href={getSolscanLink(swap.txSignature, toast.network)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-emerald-400 hover:text-emerald-300 transition-colors"
-                            >
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          )}
                         </div>
                         {swap.isSubstituted && (
                           <div className="text-white/40 mt-1">
                             Original: {swap.originalToken.slice(0, 8)}...
                             <br />
-                            Used: USDC ({swap.finalToken.slice(0, 8)}...)
+                            Used: USDC ({swap.actualToken.slice(0, 8)}...)
                           </div>
                         )}
                       </div>

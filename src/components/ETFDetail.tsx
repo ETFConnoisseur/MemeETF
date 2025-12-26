@@ -5,7 +5,7 @@ import { apiGet, apiPost, apiDelete } from '../lib/api';
 import { getTokenLogo } from '../lib/tokenLogos';
 import type { ETF, InvestmentResponse } from '../types';
 import { useToastContext } from '../contexts/ToastContext';
-import { useNetwork } from '../../lib/contexts/NetworkContext';
+import { useNetwork } from '../contexts/NetworkContext';
 
 interface TokenWithLiveData {
   address: string;
@@ -251,6 +251,17 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
       });
 
       if (response.success) {
+        // Check if any swaps failed
+        const failedSwaps = response.swapSignatures?.filter(s => s === 'FAILED') || [];
+        if (failedSwaps.length > 0) {
+          updateToast(toastId, {
+            status: 'error',
+            message: `${failedSwaps.length} token swap(s) failed. Investment incomplete.`,
+          });
+          setError(`${failedSwaps.length} token swap(s) failed. Please contact support.`);
+          return;
+        }
+
         // Update toast to success with transaction details
         updateToast(toastId, {
           status: 'success',
@@ -292,7 +303,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
 
   async function handleDelete() {
     if (!etf || !publicKey) return;
-    
+
     const confirmed = window.confirm(`Are you sure you want to delete "${etf.name}"? This cannot be undone.`);
     if (!confirmed) return;
 
@@ -302,6 +313,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
     try {
       const response = await apiDelete<{ success?: boolean; error?: string }>(`/api/etfs/${etf.id}`, {
         userId: publicKey.toBase58(),
+        network: network,
       });
 
       if (response && response.success) {
@@ -360,7 +372,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
       </button>
 
       {/* ETF Header */}
-      <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-8 mb-8">
+      <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-8 mb-8">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
           <div className="space-y-4">
             <h1 className="text-4xl tracking-tight">{etf.name}</h1>
@@ -427,15 +439,15 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
             </div>
             
             <div className="grid grid-cols-2 gap-4">
-              <div className="rounded-xl border border-white/10 bg-black/40 p-4 text-center">
+              <div className="rounded-xl border border-white/10 p-4 text-center">
                 <p className="text-xs text-white/60 mb-1">Listed MC</p>
                 <p className="text-xl">{formatMarketCap(listedTotalMC)}</p>
               </div>
-              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 text-center">
+              <div className="rounded-xl border border-emerald-500/30 p-4 text-center">
                 <p className="text-xs text-white/60 mb-1">Current MC</p>
                 <p className="text-xl">{formatMarketCap(currentTotalMC)}</p>
               </div>
-              <div className="rounded-xl border border-white/10 bg-black/40 p-4 text-center">
+              <div className="rounded-xl border border-white/10 p-4 text-center">
                 <p className="text-xs text-white/60 mb-1">24h Performance</p>
                 <div className={`text-2xl flex items-center justify-center gap-2 ${
                   return24h >= 0 ? 'text-emerald-400' : 'text-red-400'
@@ -448,7 +460,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
                   {return24h >= 0 ? '+' : ''}{return24h.toFixed(2)}%
                 </div>
               </div>
-              <div className="rounded-xl border border-white/10 bg-black/40 p-4 text-center">
+              <div className="rounded-xl border border-white/10 p-4 text-center">
                 <p className="text-xs text-white/60 mb-1">Since Listing</p>
                 <div className={`text-2xl flex items-center justify-center gap-2 ${
                   returnSinceListing >= 0 ? 'text-emerald-400' : 'text-red-400'
@@ -469,7 +481,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Token List */}
         <div className="lg:col-span-2">
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-6">
+          <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-6">
             <h2 className="text-2xl mb-6">Token Composition</h2>
             <div className="space-y-4">
               {tokensWithLiveData.length > 0 ? tokensWithLiveData.map((token, idx) => {
@@ -481,7 +493,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
                 return (
                   <div
                     key={idx}
-                    className="flex items-center justify-between p-4 rounded-xl border border-white/10 bg-black/40 hover:bg-black/60 transition-colors"
+                    className="flex items-center justify-between p-4 rounded-xl border border-white/10 hover:border-white/20 transition-colors"
                   >
                     <div className="flex items-center gap-4">
                       <TokenImage 
@@ -523,7 +535,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
               }) : etf.tokens.map((token, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center justify-between p-4 rounded-xl border border-white/10 bg-black/40 animate-pulse"
+                  className="flex items-center justify-between p-4 rounded-xl border border-white/10 animate-pulse"
                 >
                   <div className="flex items-center gap-4">
                     <div className="w-14 h-14 rounded-full bg-white/10" />
@@ -544,7 +556,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
 
         {/* Invest Panel */}
         <div className="lg:col-span-1">
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-6 sticky top-24">
+          <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-6 sticky top-24">
             <h2 className="text-2xl mb-6 flex items-center gap-2">
               <Wallet className="w-6 h-6" />
               Invest
@@ -571,7 +583,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
                     value={investAmount}
                     onChange={(e) => setInvestAmount(e.target.value)}
                     placeholder="0.00"
-                    className="w-full px-4 py-3 rounded-xl bg-black/40 border border-white/10 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
+                    className="w-full px-4 py-3 rounded-xl border border-white/10 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
                   />
                 </div>
 
@@ -586,6 +598,12 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
                     </button>
                   ))}
                 </div>
+
+                {network === 'devnet' && (
+                  <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/50 text-yellow-200 text-xs">
+                    ⚠️ <strong>Devnet Mode:</strong> All tokens will be substituted with devnet USDC for testing purposes. This is for testing only.
+                  </div>
+                )}
 
                 {error && (
                   <div className="p-3 rounded-lg bg-transparent border border-red-500 text-red-200 text-sm">
@@ -612,7 +630,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
                 </button>
 
                 <p className="text-xs text-white/40 text-center">
-                  A 1% fee will be charged (0.5% to lister, 0.5% platform)
+                  A 0.5% fee will be charged to the lister
                 </p>
               </div>
             )}
@@ -621,7 +639,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
       </div>
 
       {/* Additional Info */}
-      <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-6">
+      <div className="mt-8 rounded-2xl border border-white/10 backdrop-blur-sm p-6">
         <h2 className="text-xl mb-4">About This ETF</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
           <div>
@@ -640,7 +658,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
           </div>
           <div>
             <p className="text-white/60">Fee Structure</p>
-            <p className="text-white font-medium">1% on trades</p>
+            <p className="text-white font-medium">0.5% on trades</p>
           </div>
         </div>
       </div>

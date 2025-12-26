@@ -3,17 +3,19 @@ import { getDatabasePool } from '@/lib/database/connection';
 import { decryptPrivateKey, getKeypairFromPrivateKey, getConnection } from '@/lib/solana/wallet';
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { swapForEtfPurchase } from '@/lib/solana/jupiterSwap';
+import { withTransaction, deductProtocolBalance } from '@/lib/database/transactions';
 
 /**
  * POST /api/investments/create
  * Purchase an ETF using protocol wallet balance
- * Executes real Jupiter swaps for each token in the ETF
+ * SAFE IMPLEMENTATION: Execute swaps FIRST, then atomically update database
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { etfId, solAmount, userId, network = 'devnet' } = body;
 
+    // Validation
     if (!etfId || !userId) {
       return NextResponse.json({ error: 'ETF ID and User ID required' }, { status: 400 });
     }
@@ -42,16 +44,17 @@ export async function POST(request: NextRequest) {
     const user = userResult.rows[0];
     const protocolBalance = parseFloat(user.protocol_sol_balance);
 
+    // Check balance BEFORE any operations (no deduction yet)
     if (protocolBalance < solAmount) {
       return NextResponse.json({
         error: `Insufficient protocol balance. Have ${protocolBalance.toFixed(4)} SOL, need ${solAmount} SOL`
       }, { status: 400 });
     }
 
-    // Get ETF details
+    // Get ETF details (verify network matches)
     const etfResult = await pool.query(
-      'SELECT * FROM etf_listings WHERE id = $1',
-      [etfId]
+      'SELECT * FROM etf_listings WHERE id = $1 AND network = $2',
+      [etfId, network]
     );
 
     if (etfResult.rows.length === 0) {
@@ -65,7 +68,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'ETF has no tokens configured' }, { status: 400 });
     }
 
-    // Get protocol wallet keypair (for executing swaps)
+    // Get protocol wallet keypair
     const walletResult = await pool.query(
       'SELECT encrypted_private_key FROM wallets WHERE user_id = $1',
       [userId]
@@ -78,27 +81,20 @@ export async function POST(request: NextRequest) {
     const privateKey = decryptPrivateKey(walletResult.rows[0].encrypted_private_key);
     const protocolKeypair = getKeypairFromPrivateKey(privateKey);
 
-    // Calculate fees (0.5% to lister)
+    // Calculate fees
     const listerFee = solAmount * 0.005;
     const solAfterFees = solAmount - listerFee;
-
-    // Deduct from protocol balance immediately
-    await pool.query(
-      'UPDATE users SET protocol_sol_balance = protocol_sol_balance - $1 WHERE wallet_address = $2',
-      [solAmount, userId]
-    );
 
     console.log('[Investment] 🚀 Starting ETF purchase...');
     console.log('[Investment] User:', userId);
     console.log('[Investment] ETF:', etf.name);
     console.log('[Investment] Amount:', solAmount, 'SOL');
+    console.log('[Investment] Network:', network);
     console.log('[Investment] Tokens:', tokens.length);
 
-    // Determine if devnet or mainnet from request
+    // STEP 1: Execute Jupiter swaps FIRST (before any database changes)
     const connection = getConnection(network);
     const isDevnet = network === 'devnet';
-
-    // Execute Jupiter swaps for each token
     const tokenMints = tokens.map((t: any) => new PublicKey(t.address));
     const tokenWeights = tokens.map((t: any) => parseFloat(t.weight));
 
@@ -109,26 +105,21 @@ export async function POST(request: NextRequest) {
         protocolKeypair,
         tokenMints,
         tokenWeights,
-        solAfterFees, // Swap the SOL after fees
+        solAfterFees,
         isDevnet
       );
 
-      console.log('[Investment] ✅ Swaps completed:', swapResults.length);
+      console.log('[Investment] ✅ All swaps completed successfully:', swapResults.length);
     } catch (swapError: any) {
-      console.error('[Investment] ❌ Swap failed:', swapError);
-
-      // Refund to protocol balance if swap fails
-      await pool.query(
-        'UPDATE users SET protocol_sol_balance = protocol_sol_balance + $1 WHERE wallet_address = $2',
-        [solAmount, userId]
-      );
-
+      console.error('[Investment] ❌ Swap execution failed:', swapError);
+      // Swaps failed, but no database changes made yet - safe to return error
       return NextResponse.json({
-        error: `Failed to execute swaps: ${swapError.message}`
+        error: `Failed to execute swaps: ${swapError.message}`,
+        details: process.env.NODE_ENV === 'development' ? swapError.toString() : undefined
       }, { status: 500 });
     }
 
-    // Calculate current and purchase market caps
+    // Calculate market caps for portfolio tracking
     const currentMC = tokens.reduce((sum: number, token: any) => {
       return sum + (token.market_cap || 0) * (token.weight / 100);
     }, 0);
@@ -137,111 +128,138 @@ export async function POST(request: NextRequest) {
       return sum + (token.price_change_24h || 0) * (token.weight / 100);
     }, 0);
 
-    // Store investment record with actual swap data
-    const investmentResult = await pool.query(
-      `INSERT INTO investments (
-        user_id, etf_id, sol_amount, sol_invested, purchase_mc,
-        purchase_24h_change, tokens_purchased, entry_market_cap, is_sold
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE)
-      RETURNING *`,
-      [
-        userId,
-        etfId,
-        solAmount,
-        solAfterFees,
-        currentMC,
-        purchase24hChange,
-        JSON.stringify(swapResults.map((s, i) => ({
-          mint: tokens[i].address, // Original token address from ETF
-          actualMint: s.outputMint, // Actual token minted (devnet USDC on devnet)
-          symbol: tokens[i].symbol,
-          amount: s.outputAmount,
-          weight: tokenWeights[i],
-          isDevnetSubstitution: isDevnet && tokens[i].address !== s.outputMint,
-        }))),
-        currentMC,
-      ]
-    );
+    // STEP 2: ALL swaps succeeded - now atomically update database
+    let investmentId;
+    try {
+      await withTransaction(pool, async (client) => {
+        // Deduct balance (with validation - will throw if insufficient)
+        await deductProtocolBalance(client, userId, solAmount);
 
-    const investmentId = investmentResult.rows[0].id;
-
-    // Record each individual swap
-    for (let i = 0; i < swapResults.length; i++) {
-      const swap = swapResults[i];
-      const token = tokens[i];
-
-      // Try to insert with actual_mint column if it exists, fallback to just token_mint
-      try {
-        await pool.query(
-          `INSERT INTO investment_swaps (
-            investment_id, token_mint, actual_mint, token_symbol, token_name,
-            weight, sol_amount, token_amount, tx_signature,
-            swap_type, is_devnet_mock
+        // Insert investment record
+        const investmentResult = await client.query(
+          `INSERT INTO investments (
+            user_id, etf_id, sol_amount, sol_invested, purchase_mc,
+            purchase_24h_change, tokens_purchased, entry_market_cap, is_sold, network
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'buy', $10)`,
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, $9)
+          RETURNING *`,
           [
-            investmentId,
-            token.address, // Original mainnet token
-            swap.outputMint, // Actual minted token (devnet USDC on devnet)
-            token.symbol,
-            token.name,
-            tokenWeights[i],
-            swap.inputAmount,
-            swap.outputAmount,
-            swap.signature,
-            swap.isDevnetMock,
+            userId,
+            etfId,
+            solAmount,
+            solAfterFees,
+            currentMC,
+            purchase24hChange,
+            JSON.stringify(swapResults.map((s, i) => ({
+              mint: tokens[i].address,
+              actualMint: s.outputMint,
+              symbol: tokens[i].symbol,
+              amount: s.outputAmount,
+              weight: tokenWeights[i],
+              isDevnetSubstitution: isDevnet && tokens[i].address !== s.outputMint,
+            }))),
+            currentMC,
+            network,
           ]
         );
-      } catch (insertError: any) {
-        // If actual_mint column doesn't exist, insert without it
-        if (insertError.code === '42703') {
-          await pool.query(
+
+        investmentId = investmentResult.rows[0].id;
+
+        // Insert all swap records
+        for (let i = 0; i < swapResults.length; i++) {
+          const swap = swapResults[i];
+          const token = tokens[i];
+
+          await client.query(
             `INSERT INTO investment_swaps (
-              investment_id, token_mint, token_symbol, token_name,
+              investment_id, token_mint, actual_mint, token_symbol, token_name,
               weight, sol_amount, token_amount, tx_signature,
-              swap_type, is_devnet_mock
+              swap_type, is_devnet_mock, network
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'buy', $9)`,
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'buy', $10, $11)`,
             [
               investmentId,
               token.address,
+              swap.outputMint,
               token.symbol,
-              token.name,
+              token.name || token.symbol,
               tokenWeights[i],
               swap.inputAmount,
               swap.outputAmount,
               swap.signature,
-              swap.isDevnetMock,
+              swap.isDevnetMock || false,
+              network,
             ]
           );
-        } else {
-          throw insertError;
         }
+
+        // Update ETF stats
+        await client.query(
+          `UPDATE etf_listings
+           SET total_volume = COALESCE(total_volume, 0) + $1,
+               total_investors = (
+                 SELECT COUNT(DISTINCT user_id)
+                 FROM investments
+                 WHERE etf_id = $2
+               )
+           WHERE id = $2`,
+          [solAmount, etfId]
+        );
+
+        // Record lister fee
+        await client.query(
+          `INSERT INTO fees (etf_id, lister_fee, platform_fee, paid_out)
+           VALUES ($1, $2, 0, FALSE)`,
+          [etfId, listerFee]
+        );
+      });
+
+      console.log('[Investment] ✅ Database updated successfully');
+    } catch (dbError: any) {
+      // CRITICAL: Swaps succeeded but database update failed
+      console.error('[Investment] ❌ CRITICAL: Swaps completed but database update failed!');
+      console.error('[Investment] Swap signatures:', swapResults.map(s => s.signature));
+      console.error('[Investment] Database error:', dbError);
+      console.error('[Investment] ACTION REQUIRED: Manual reconciliation needed');
+
+      // Try to log this critical error
+      try {
+        await pool.query(
+          `INSERT INTO transactions (user_id, type, amount, tx_hash, status, metadata)
+           VALUES ($1, 'buy', $2, $3, 'pending_reconciliation', $4)`,
+          [
+            userId,
+            solAmount,
+            swapResults[0]?.signature || 'MULTIPLE_SWAPS',
+            JSON.stringify({
+              error: dbError.message,
+              timestamp: new Date().toISOString(),
+              needs_manual_review: true,
+              swap_signatures: swapResults.map(s => s.signature),
+              etf_id: etfId,
+              network: network
+            })
+          ]
+        );
+      } catch (logError) {
+        console.error('[Investment] Could not log to transactions:', logError);
       }
+
+      return NextResponse.json({
+        success: false,
+        error: 'Investment swaps completed but database update failed. Please contact support.',
+        swapSignatures: swapResults.map(s => s.signature),
+        requiresReconciliation: true,
+        explorerUrls: swapResults.map(s => ({
+          signature: s.signature,
+          url: network === 'mainnet-beta'
+            ? `https://solscan.io/tx/${s.signature}`
+            : `https://solscan.io/tx/${s.signature}?cluster=devnet`
+        }))
+      }, { status: 500 });
     }
 
-    // Update ETF stats
-    await pool.query(
-      `UPDATE etf_listings
-       SET total_volume = COALESCE(total_volume, 0) + $1,
-           total_investors = (
-             SELECT COUNT(DISTINCT user_id)
-             FROM investments
-             WHERE etf_id = $2
-           )
-       WHERE id = $2`,
-      [solAmount, etfId]
-    );
-
-    // Record lister fee
-    await pool.query(
-      `INSERT INTO fees (etf_id, lister_fee, platform_fee, paid_out)
-       VALUES ($1, $2, 0, FALSE)`,
-      [etfId, listerFee]
-    );
-
-    // Get updated protocol balance
+    // Get updated balance
     const updatedUser = await pool.query(
       'SELECT protocol_sol_balance FROM users WHERE wallet_address = $1',
       [userId]
@@ -249,20 +267,39 @@ export async function POST(request: NextRequest) {
 
     console.log('[Investment] ✅ Investment created successfully');
     console.log('[Investment] Investment ID:', investmentId);
-    console.log('[Investment] Swaps:', swapResults.map(s => s.signature).filter(s => s !== 'FAILED'));
 
+    // Return response matching frontend expectations
     return NextResponse.json({
       success: true,
-      investment: investmentResult.rows[0],
-      swaps: swapResults,
+      txHash: swapResults[0]?.signature || null,
+      swapSignatures: swapResults.map(s => s.signature),
+      tokenSubstitutions: swapResults.map((s, i) => ({
+        originalToken: tokens[i].address,
+        actualToken: s.outputMint,
+        isSubstituted: tokens[i].address !== s.outputMint,
+        symbol: tokens[i].symbol,
+        weight: tokenWeights[i]
+      })),
       newProtocolBalance: parseFloat(updatedUser.rows[0].protocol_sol_balance),
-      feesRecorded: { listerFee },
+      investment: {
+        id: investmentId,
+        solInvested: solAfterFees,
+        purchaseMC: currentMC
+      },
+      network: network,
+      explorerUrls: swapResults.map(s => ({
+        signature: s.signature,
+        url: network === 'mainnet-beta'
+          ? `https://solscan.io/tx/${s.signature}`
+          : `https://solscan.io/tx/${s.signature}?cluster=devnet`
+      }))
     });
 
   } catch (error: any) {
-    console.error('[Investment] ❌ Error:', error);
+    console.error('[Investment] ❌ Unexpected error:', error);
     return NextResponse.json({
-      error: error.message || 'Failed to create investment'
+      error: error.message || 'Failed to create investment',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     }, { status: 500 });
   }
 }

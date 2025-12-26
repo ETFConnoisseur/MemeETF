@@ -220,7 +220,7 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
       />
       
       {/* Modal */}
-      <div className="relative bg-black border border-white/20 rounded-2xl w-full max-w-md shadow-2xl">
+      <div className="relative border border-white/20 rounded-2xl w-full max-w-md shadow-2xl">
         <div className="p-6 space-y-6">
           {/* Header */}
           <div className="flex items-start justify-between">
@@ -279,7 +279,7 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
                   type="number"
                   value={depositAmount}
                   onChange={(e) => setDepositAmount(e.target.value)}
-                  className="flex-1 px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
+                  className="flex-1 px-4 py-3 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
                   placeholder="0.00"
                   step="0.01"
                   min="0"
@@ -316,7 +316,7 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
                   type="number"
                   value={withdrawAmount}
                   onChange={(e) => setWithdrawAmount(e.target.value)}
-                  className="flex-1 px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
+                  className="flex-1 px-4 py-3 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
                   placeholder="0.00"
                   step="0.01"
                   min="0"

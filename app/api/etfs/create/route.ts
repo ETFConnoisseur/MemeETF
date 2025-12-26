@@ -13,24 +13,28 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     console.log('[ETF Create] Request:', { name: body.name, userId: body.userId, tokens: body.tokens?.length });
-    
-    const { name, tokens, userId } = body;
+
+    const { name, tokens, userId, network = 'devnet' } = body;
 
     // Validation
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
       return NextResponse.json({ success: false, error: 'ETF name is required' }, { status: 400 });
     }
-    
+
     if (!tokens || !Array.isArray(tokens) || tokens.length === 0) {
       return NextResponse.json({ success: false, error: 'At least one token is required' }, { status: 400 });
     }
-    
+
     if (tokens.length > MAX_TOKENS_PER_ETF) {
       return NextResponse.json({ success: false, error: `Maximum ${MAX_TOKENS_PER_ETF} tokens allowed` }, { status: 400 });
     }
-    
+
     if (!userId) {
       return NextResponse.json({ success: false, error: 'User ID required' }, { status: 400 });
+    }
+
+    if (network !== 'devnet' && network !== 'mainnet-beta') {
+      return NextResponse.json({ success: false, error: 'Invalid network. Must be devnet or mainnet-beta' }, { status: 400 });
     }
 
     // Validate token addresses
@@ -52,11 +56,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Database not configured' }, { status: 503 });
     }
 
-    // Check for duplicate ETF
+    // Check for duplicate ETF (within the same network)
     const tokenHash = generateTokenHash(tokens);
-    const duplicateCheck = await pool.query('SELECT id FROM etf_listings WHERE token_hash = $1', [tokenHash]);
+    const duplicateCheck = await pool.query('SELECT id FROM etf_listings WHERE token_hash = $1 AND network = $2', [tokenHash, network]);
     if (duplicateCheck.rows.length > 0) {
-      return NextResponse.json({ success: false, error: 'An ETF with these tokens already exists' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'An ETF with these tokens already exists on this network' }, { status: 400 });
     }
 
     // Get user's protocol wallet and balance
@@ -94,40 +98,47 @@ export async function POST(request: NextRequest) {
     }
 
     // Get connection and check on-chain balance
-    const connection = getConnection('devnet');
+    const connection = getConnection(network);
     let onChainBalance = await connection.getBalance(keypair.publicKey);
-    console.log('[ETF Create] On-chain balance:', onChainBalance / LAMPORTS_PER_SOL, 'SOL');
+    console.log(`[ETF Create] On-chain balance (${network}):`, onChainBalance / LAMPORTS_PER_SOL, 'SOL');
 
-    // If protocol wallet has no SOL, request devnet airdrop
+    // If protocol wallet has no SOL, request airdrop (devnet only)
     if (onChainBalance < 0.01 * LAMPORTS_PER_SOL) {
-      console.log('[ETF Create] Protocol wallet needs devnet SOL, requesting airdrop...');
-      try {
-        const airdropSignature = await connection.requestAirdrop(
-          keypair.publicKey,
-          1 * LAMPORTS_PER_SOL // Request 1 SOL
-        );
-        await connection.confirmTransaction(airdropSignature, 'confirmed');
-        onChainBalance = await connection.getBalance(keypair.publicKey);
-        console.log('[ETF Create] Airdrop successful! New balance:', onChainBalance / LAMPORTS_PER_SOL, 'SOL');
-      } catch (airdropError: any) {
-        console.error('[ETF Create] Airdrop failed:', airdropError.message);
+      if (network === 'devnet') {
+        console.log('[ETF Create] Protocol wallet needs devnet SOL, requesting airdrop...');
+        try {
+          const airdropSignature = await connection.requestAirdrop(
+            keypair.publicKey,
+            1 * LAMPORTS_PER_SOL // Request 1 SOL
+          );
+          await connection.confirmTransaction(airdropSignature, 'confirmed');
+          onChainBalance = await connection.getBalance(keypair.publicKey);
+          console.log('[ETF Create] Airdrop successful! New balance:', onChainBalance / LAMPORTS_PER_SOL, 'SOL');
+        } catch (airdropError: any) {
+          console.error('[ETF Create] Airdrop failed:', airdropError.message);
+          return NextResponse.json({
+            success: false,
+            error: `Protocol wallet needs devnet SOL for transaction fees. Airdrop failed: ${airdropError.message}`
+          }, { status: 400 });
+        }
+      } else {
         return NextResponse.json({
           success: false,
-          error: `Protocol wallet needs devnet SOL for transaction fees. Airdrop failed: ${airdropError.message}`
+          error: 'Insufficient SOL in protocol wallet for transaction fees. Please deposit SOL to your protocol wallet first.'
         }, { status: 400 });
       }
     }
     
-    // Check if user already has an active ETF in the database
+    // Check if user already has an active ETF in the database (for this network)
     const existingEtfCheck = await pool.query(
-      'SELECT id, name FROM etf_listings WHERE creator = $1',
-      [userId]
+      'SELECT id, name FROM etf_listings WHERE creator = $1 AND network = $2',
+      [userId, network]
     );
 
     if (existingEtfCheck.rows.length > 0) {
       return NextResponse.json({
         success: false,
-        error: `You already have an active ETF "${existingEtfCheck.rows[0].name}". Delete it first to create a new one.`
+        error: `You already have an active ETF "${existingEtfCheck.rows[0].name}" on ${network}. Delete it first to create a new one.`
       }, { status: 400 });
     }
 
@@ -141,25 +152,25 @@ export async function POST(request: NextRequest) {
     }
 
     // Initialize ETF on-chain
-    console.log('[ETF Create] Initializing on devnet...');
+    console.log(`[ETF Create] Initializing on ${network}...`);
     console.log('[ETF Create] Lister:', keypair.publicKey.toString());
     console.log('[ETF Create] ETF PDA:', etfPda.toString());
     console.log('[ETF Create] Program ID:', PROGRAM_ID.toString());
-    
+
     let signature: string;
     try {
       signature = await initializeEtf(connection, keypair, tokenPubkeys);
       console.log('[ETF Create] ✅ Success! TX:', signature);
       } catch (err: any) {
       console.error('[ETF Create] ❌ Failed:', err);
-        
+
       if (err.message?.includes('already in use')) {
         return NextResponse.json({ success: false, error: 'ETF already exists for this wallet' }, { status: 400 });
         }
       if (err.message?.includes('insufficient')) {
         return NextResponse.json({ success: false, error: 'Insufficient SOL for transaction' }, { status: 400 });
       }
-      
+
       return NextResponse.json({ success: false, error: `Transaction failed: ${err.message}` }, { status: 500 });
       }
 
@@ -179,10 +190,10 @@ export async function POST(request: NextRequest) {
 
     // Save to database
     const result = await pool.query(
-      `INSERT INTO etf_listings (name, creator, contract_address, market_cap_at_list, tokens, token_hash)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, name, creator, contract_address, market_cap_at_list, tokens, created_at`,
-      [name, userId, etfPda.toString(), initialMarketCap, JSON.stringify(tokens), tokenHash]
+      `INSERT INTO etf_listings (name, creator, contract_address, market_cap_at_list, tokens, token_hash, network)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, name, creator, contract_address, market_cap_at_list, tokens, network, created_at`,
+      [name, userId, etfPda.toString(), initialMarketCap, JSON.stringify(tokens), tokenHash, network]
     );
 
     // Deduct fee from protocol balance and record transaction
@@ -202,7 +213,15 @@ export async function POST(request: NextRequest) {
       created_at: result.rows[0].created_at,
     };
 
-    return NextResponse.json({ success: true, etf, txHash: signature });
+    return NextResponse.json({
+      success: true,
+      etf,
+      txHash: signature,
+      network: network,
+      explorerUrl: network === 'mainnet-beta'
+        ? `https://solscan.io/tx/${signature}`
+        : `https://solscan.io/tx/${signature}?cluster=devnet`
+    });
     
   } catch (error: any) {
     console.error('[ETF Create] Error:', error);

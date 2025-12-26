@@ -2,12 +2,14 @@ import { Trophy, Medal, Award } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { apiGet } from '../lib/api';
 import type { LeaderboardResponse, LeaderboardEntry } from '../types';
+import { useNetwork } from '../contexts/NetworkContext';
 
 interface LeaderboardProps {
   onNavigate: (tab: string, data?: any) => void;
 }
 
 export function Leaderboard({ onNavigate }: LeaderboardProps) {
+  const { network } = useNetwork();
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -16,7 +18,7 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
       try {
         setLoading(true);
         const data = await apiGet<LeaderboardResponse>(
-          '/api/leaderboard',
+          `/api/leaderboard?network=${network}`,
           { success: true, leaderboard: [] }
         );
         if (data.success && Array.isArray(data.leaderboard)) {
@@ -33,7 +35,7 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
     };
 
     fetchLeaderboard();
-  }, []);
+  }, [network]);
 
   const topThree = leaderboard.slice(0, 3);
   const restOfLeaderboard = leaderboard.slice(3);
@@ -56,7 +58,7 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
       {/* Top 3 Podium */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
         {/* Second Place */}
-        <div className="rounded-xl border-2 border-gray-400 bg-transparent backdrop-blur-sm p-8 text-center">
+        <div className="rounded-xl border-2 border-gray-400 backdrop-blur-sm p-8 text-center">
           <div className="w-16 h-16 rounded-full bg-gradient-to-br from-gray-300 to-gray-500 flex items-center justify-center mx-auto mb-4">
             <Medal className="w-8 h-8 text-white" />
           </div>
@@ -77,7 +79,7 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
         </div>
 
         {/* First Place */}
-        <div className="rounded-xl border-2 border-yellow-500 bg-transparent backdrop-blur-sm p-8 text-center">
+        <div className="rounded-xl border-2 border-yellow-500 backdrop-blur-sm p-8 text-center">
           <div className="w-20 h-20 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center mx-auto mb-4">
             <Trophy className="w-10 h-10 text-white" />
           </div>
@@ -98,7 +100,7 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
         </div>
 
         {/* Third Place */}
-        <div className="rounded-xl border-2 border-amber-700 bg-transparent backdrop-blur-sm p-8 text-center">
+        <div className="rounded-xl border-2 border-amber-700 backdrop-blur-sm p-8 text-center">
           <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-600 to-amber-800 flex items-center justify-center mx-auto mb-4">
             <Award className="w-8 h-8 text-white" />
           </div>
@@ -120,9 +122,9 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
       </div>
 
       {/* Leaderboard Table */}
-      <div className="rounded-2xl border-2 border-gray-400 bg-transparent backdrop-blur-sm overflow-hidden">
+      <div className="rounded-2xl border-2 border-gray-400 backdrop-blur-sm overflow-hidden">
         {/* Table Header */}
-        <div className="grid grid-cols-12 gap-4 px-8 py-5 border-b border-white/10 bg-transparent">
+        <div className="grid grid-cols-12 gap-4 px-8 py-5 border-b border-white/10">
           <div className="col-span-1 text-sm text-white uppercase tracking-wider">Rank</div>
           <div className="col-span-4 text-sm text-white uppercase tracking-wider">User</div>
           <div className="col-span-4 text-sm text-white uppercase tracking-wider">ETF Name</div>

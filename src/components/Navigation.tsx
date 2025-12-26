@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { WalletModal } from './WalletModal';
+import { NetworkSwitch } from './NetworkSwitch';
 
 interface NavigationProps {
   activeTab: string;
@@ -18,7 +19,7 @@ export function Navigation({ activeTab, onTabChange }: NavigationProps) {
 
   return (
     <>
-      <nav className="border-b border-white/10 bg-black/80 backdrop-blur-md">
+      <nav className="border-b border-white/10 backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
@@ -48,6 +49,7 @@ export function Navigation({ activeTab, onTabChange }: NavigationProps) {
 
           {/* Right Side */}
           <div className="flex items-center gap-4">
+            <NetworkSwitch />
             {connected && publicKey ? (
               <>
                 <button

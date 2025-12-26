@@ -60,13 +60,17 @@ export async function DELETE(
   try {
     const { id } = await params;
     const body = await request.json().catch(() => ({}));
-    const { userId } = body;
+    const { userId, network = 'devnet' } = body;
 
     if (!userId) {
       return NextResponse.json(
         { error: 'User ID (wallet address) is required' },
         { status: 400 }
       );
+    }
+
+    if (network !== 'devnet' && network !== 'mainnet-beta') {
+      return NextResponse.json({ error: 'Invalid network. Must be devnet or mainnet-beta' }, { status: 400 });
     }
 
     const pool = getDatabasePool();
@@ -154,9 +158,9 @@ export async function DELETE(
         const privateKey = decryptPrivateKey(encrypted_private_key);
         const listerKeypair = getKeypairFromPrivateKey(privateKey);
 
-        const connection = getConnection('devnet');
+        const connection = getConnection(network);
 
-        console.log('[Delete ETF] Closing ETF PDA on-chain...');
+        console.log(`[Delete ETF] Closing ETF PDA on-chain (${network})...`);
         const closeTxSignature = await closeEtf(connection, listerKeypair);
         console.log('[Delete ETF] ✅ ETF PDA closed successfully:', closeTxSignature);
       } else {

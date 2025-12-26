@@ -94,9 +94,11 @@ export interface PortfolioResponse {
   success: boolean;
   holdings: PortfolioHolding[];
   totalValue: number;
+  totalInvested?: number;
   unrealizedPnl: number;
   realizedPnl: number;
-  availableBalance: number;
+  protocolBalance?: number;
+  availableBalance?: number;
   transactions?: Transaction[];
   realizedPnlHistory?: Array<{ date: string; pnl: number }>;
 }
@@ -204,24 +206,29 @@ export interface WithdrawResponse {
 // Investment
 export interface InvestmentResponse {
   success: boolean;
-  investment: {
+  investment?: {
     id: string;
     sol_amount: number;
     entry_market_cap: number;
     tokens_received: number;
     created_at: Date;
   };
-  txHash: string;
+  txHash?: string;
   swapSignatures?: string[];
   tokenSubstitutions?: Array<{
     originalToken: string;
-    finalToken: string;
+    actualToken: string;
     isSubstituted: boolean;
-    solAmount: number;
-    percentage: number;
-    txSignature: string | null;
+    symbol: string;
+    weight: number;
   }>;
-  newBalance: number;
+  newProtocolBalance?: number;
+  network?: string;
+  explorerUrls?: Array<{
+    signature: string;
+    url: string;
+  }>;
+  error?: string;
 }
 
 export interface SellResponse {

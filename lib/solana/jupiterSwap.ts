@@ -261,6 +261,82 @@ export async function swapSolToToken(
 }
 
 /**
+ * Swap token to SOL via Jupiter
+ * Used when selling ETF positions
+ */
+export async function swapTokenToSol(
+  connection: Connection,
+  userKeypair: Keypair,
+  inputTokenMint: PublicKey,
+  tokenAmount: number, // token amount in smallest units
+  isDevnet: boolean = true
+): Promise<SwapResult> {
+  const SOL_MINT = 'So11111111111111111111111111111111111111112';
+
+  // On devnet, use realistic simulation (since we can't actually sell devnet tokens)
+  if (isDevnet) {
+    console.log(`[JupiterSwap] Devnet mode: Simulating sale of ${inputTokenMint.toBase58()}`);
+
+    // Realistic simulation: random price movement between 80-120% of entry
+    // In real scenario, we'd query current price vs entry price
+    const priceMultiplier = 0.8 + (Math.random() * 0.4); // 80% to 120%
+    const estimatedLamports = Math.floor(tokenAmount * 0.001 * priceMultiplier); // Rough estimate
+    const estimatedSOL = estimatedLamports / LAMPORTS_PER_SOL;
+
+    console.log(`[JupiterSwap] ⚠️  Simulated sell: ~${estimatedSOL.toFixed(4)} SOL (${(priceMultiplier * 100).toFixed(1)}% of entry)`);
+
+    const mockSignature = `DEVNET_SELL_MOCK_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+
+    return {
+      signature: mockSignature,
+      inputAmount: tokenAmount,
+      outputAmount: estimatedLamports,
+      inputMint: inputTokenMint.toBase58(),
+      outputMint: SOL_MINT,
+      isDevnetMock: true,
+    };
+  }
+
+  // Mainnet: Execute real Jupiter swap token -> SOL
+  try {
+    console.log('[JupiterSwap] Getting quote for token -> SOL swap...');
+
+    const quote = await getJupiterQuote(
+      inputTokenMint.toBase58(),
+      SOL_MINT,
+      Math.floor(tokenAmount),
+      50, // 0.5% slippage
+      false // mainnet
+    );
+
+    if (!quote) {
+      throw new Error('Failed to get Jupiter quote for sell');
+    }
+
+    console.log('[JupiterSwap] Sell quote received:', {
+      inAmount: quote.inAmount,
+      outAmount: quote.outAmount,
+      priceImpact: quote.priceImpactPct,
+    });
+
+    // Execute swap
+    const signature = await executeJupiterSwap(connection, userKeypair, quote, false);
+
+    return {
+      signature,
+      inputAmount: tokenAmount,
+      outputAmount: parseInt(quote.outAmount),
+      inputMint: inputTokenMint.toBase58(),
+      outputMint: SOL_MINT,
+      isDevnetMock: false,
+    };
+  } catch (error) {
+    console.error('[JupiterSwap] Mainnet token->SOL swap failed:', error);
+    throw error;
+  }
+}
+
+/**
  * Execute multiple swaps for ETF purchase
  */
 export async function swapForEtfPurchase(
@@ -318,5 +394,54 @@ export async function swapForEtfPurchase(
   }
 
   console.log(`[JupiterSwap] 🎉 All swaps completed: ${results.filter(r => r.signature !== 'FAILED').length}/${results.length} successful`);
+  return results;
+}
+
+/**
+ * Execute multiple token->SOL swaps for ETF selling
+ */
+export async function swapForEtfSell(
+  connection: Connection,
+  userKeypair: Keypair,
+  tokens: Array<{ mint: string; amount: number; symbol: string }>,
+  isDevnet: boolean = true
+): Promise<SwapResult[]> {
+  const results: SwapResult[] = [];
+
+  console.log(`[JupiterSwap] 💰 Selling ${tokens.length} tokens back to SOL on ${isDevnet ? 'DEVNET' : 'MAINNET'}`);
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+
+    console.log(`[JupiterSwap] Sell ${i + 1}/${tokens.length}: ${token.symbol} (${token.amount} tokens)`);
+
+    try {
+      const result = await swapTokenToSol(
+        connection,
+        userKeypair,
+        new PublicKey(token.mint),
+        token.amount,
+        isDevnet
+      );
+
+      results.push(result);
+      const solReceived = result.outputAmount / LAMPORTS_PER_SOL;
+      console.log(`[JupiterSwap] ✅ Sell ${i + 1}/${tokens.length} completed: ${solReceived.toFixed(4)} SOL`);
+    } catch (error: any) {
+      console.error(`[JupiterSwap] ❌ Sell ${i + 1} failed:`, error);
+      results.push({
+        signature: 'FAILED',
+        inputAmount: token.amount,
+        outputAmount: 0,
+        inputMint: token.mint,
+        outputMint: 'So11111111111111111111111111111111111111112',
+        isDevnetMock: false,
+      });
+    }
+  }
+
+  const successfulSells = results.filter(r => r.signature !== 'FAILED').length;
+  console.log(`[JupiterSwap] 🎉 Sell complete: ${successfulSells}/${results.length} successful`);
+
   return results;
 }

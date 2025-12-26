@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { apiGet } from '../lib/api';
 import { getTokenLogo } from '../lib/tokenLogos';
 import type { ETFsResponse, ETF } from '../types';
+import { useNetwork } from '../contexts/NetworkContext';
 
 // Token image component with fallback - tries multiple sources
 function TokenImage({ 
@@ -72,6 +73,7 @@ function formatMarketCap(value: number): string {
 }
 
 export function Listings({ onNavigate }: ListingsProps) {
+  const { network } = useNetwork();
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [etfs, setEtfs] = useState<ETF[]>([]);
@@ -82,7 +84,7 @@ export function Listings({ onNavigate }: ListingsProps) {
 
   useEffect(() => {
     fetchETFs();
-  }, [activeFilter]);
+  }, [activeFilter, network]);
 
   // Fetch prices and images on load and refresh every 30 seconds for live updates
   useEffect(() => {
@@ -102,7 +104,7 @@ export function Listings({ onNavigate }: ListingsProps) {
     try {
       setLoading(true);
       const data = await apiGet<ETFsResponse>(
-        `/api/etfs?filter=${activeFilter}`,
+        `/api/etfs?filter=${activeFilter}&network=${network}`,
         { success: true, etfs: [] }
       );
       if (data.success) {
@@ -226,7 +228,7 @@ export function Listings({ onNavigate }: ListingsProps) {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search ETFs or tokens..."
-            className="w-full pl-12 pr-4 py-4 rounded-xl bg-black/40 border border-white/10 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
+            className="w-full pl-12 pr-4 py-4 rounded-xl border border-white/10 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
           />
         </div>
 
@@ -266,13 +268,13 @@ export function Listings({ onNavigate }: ListingsProps) {
 
       {/* ETF Grid */}
       {loading ? (
-        <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-12 text-center">
+        <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-12 text-center">
           <p className="text-white/40 text-lg">Loading ETFs...</p>
         </div>
       ) : filteredETFs.length === 0 ? (
-        <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-12">
+        <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-12">
           <div className="text-center space-y-6">
-            <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mx-auto">
+            <div className="w-16 h-16 rounded-full border border-white/10 flex items-center justify-center mx-auto">
               <ListFilter className="w-8 h-8 text-white/40" />
             </div>
             <p className="text-white/40 text-lg">No ETFs found</p>
@@ -297,7 +299,7 @@ export function Listings({ onNavigate }: ListingsProps) {
               <div
                 key={etf.id}
                 onClick={() => handleETFClick(etf)}
-                className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-6 hover:bg-white/10 hover:border-white/20 transition-all cursor-pointer group"
+                className="rounded-2xl border border-white/10 backdrop-blur-sm p-6 hover:border-white/20 transition-all cursor-pointer group"
               >
                 {/* Header */}
                 <div className="flex items-start justify-between mb-4">
@@ -319,11 +321,11 @@ export function Listings({ onNavigate }: ListingsProps) {
 
                 {/* Stats */}
                 <div className="grid grid-cols-2 gap-3 mb-4">
-                  <div className="rounded-lg bg-black/40 p-3">
+                  <div className="rounded-lg border border-white/10 p-3">
                     <p className="text-xs text-white/50 mb-1">Current MC</p>
                     <p className="text-white font-medium">{formatMarketCap(currentMC)}</p>
                   </div>
-                  <div className="rounded-lg bg-black/40 p-3">
+                  <div className="rounded-lg border border-white/10 p-3">
                     <p className="text-xs text-white/50 mb-1">Since Listing</p>
                     <p className={`font-medium ${returnSinceListing >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                       {returnSinceListing >= 0 ? '+' : ''}{returnSinceListing.toFixed(1)}%

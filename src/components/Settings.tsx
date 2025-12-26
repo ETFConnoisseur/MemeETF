@@ -277,20 +277,20 @@ export function Settings() {
       )}
 
       {!connected ? (
-        <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-12 text-center">
+        <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-12 text-center">
           <p className="text-white/60 text-lg">Connect your wallet to access settings</p>
         </div>
       ) : (
         <div className="space-y-6">
           {/* Wallet Section */}
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-8">
+          <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-8">
             <div className="flex items-center gap-2 mb-6">
               <Wallet className="w-6 h-6 text-white/80" />
               <h3 className="text-2xl">Wallet</h3>
             </div>
-            
+
             <div className="space-y-4">
-              <div className="flex items-center justify-between p-5 rounded-xl bg-black/40 border border-white/10">
+              <div className="flex items-center justify-between p-5 rounded-xl border border-white/10">
                 <div className="space-y-1">
                   <p className="text-sm text-white/60">Connected Wallet</p>
                   <p className="text-lg">{publicKey ? truncateAddress(publicKey.toBase58()) : 'Not connected'}</p>
@@ -304,7 +304,7 @@ export function Settings() {
                 </button>
               </div>
               
-              <div className="flex items-center justify-between p-5 rounded-xl bg-black/40 border border-white/10">
+              <div className="flex items-center justify-between p-5 rounded-xl border border-white/10">
                 <div className="space-y-1">
                   <p className="text-sm text-white/60">Wallet Balance (Devnet)</p>
                   <p className="text-lg">
@@ -325,14 +325,14 @@ export function Settings() {
           </div>
 
           {/* Connect X Account Section */}
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-8">
+          <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-8">
             <div className="flex items-center gap-2 mb-6">
               <Twitter className="w-6 h-6 text-white/80" />
               <h3 className="text-2xl">Connect X Account</h3>
             </div>
-            
+
             <div className="space-y-4">
-              <div className="flex items-center justify-between p-5 rounded-xl bg-black/40 border border-white/10">
+              <div className="flex items-center justify-between p-5 rounded-xl border border-white/10">
                 <div className="flex-1">
                   <p className="text-lg">X (Twitter) Account</p>
                   <p className="text-sm text-white/60 mt-1">
@@ -372,14 +372,14 @@ export function Settings() {
           </div>
 
           {/* Delete Account Section */}
-          <div className="rounded-2xl border border-red-500/30 bg-red-500/5 backdrop-blur-sm p-8">
+          <div className="rounded-2xl border border-red-500/30 backdrop-blur-sm p-8">
             <div className="flex items-center gap-2 mb-6">
               <Trash2 className="w-6 h-6 text-red-400" />
               <h3 className="text-2xl text-red-400">Danger Zone</h3>
             </div>
             
             <div className="space-y-4">
-              <div className="flex items-center justify-between p-5 rounded-xl bg-black/40 border border-red-500/20">
+              <div className="flex items-center justify-between p-5 rounded-xl border border-red-500/20">
                 <div className="flex-1">
                   <p className="text-lg text-white">Permanently Delete Account</p>
                   <p className="text-sm text-white/60 mt-1">

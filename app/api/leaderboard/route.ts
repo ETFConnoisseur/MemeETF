@@ -28,6 +28,7 @@ async function fetchTokenPrices(addresses: string[]): Promise<Record<string, num
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
+    const network = searchParams.get('network') || 'devnet';
     const limit = parseInt(searchParams.get('limit') || '50');
 
     const pool = getDatabasePool();
@@ -36,17 +37,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, leaderboard: [] });
     }
 
-    // Get ETFs with creator info
+    // Get ETFs with creator info (filtered by network)
     const result = await pool.query(`
       SELECT e.*, u.x_username,
                  COUNT(i.id) as investment_count,
                  COALESCE(SUM(i.sol_amount), 0) as total_invested
           FROM etf_listings e
       LEFT JOIN users u ON e.creator = u.wallet_address
-          LEFT JOIN investments i ON e.id = i.etf_id
+          LEFT JOIN investments i ON e.id = i.etf_id AND i.network = $1
+      WHERE e.network = $1
       GROUP BY e.id, u.x_username
-          LIMIT $1
-    `, [limit]);
+          LIMIT $2
+    `, [network, limit]);
 
     // Collect all token addresses
     const allTokenAddresses: string[] = [];

@@ -3,6 +3,7 @@ import { Plus, X, Loader2 } from 'lucide-react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { apiPost } from '../lib/api';
 import { useToastContext } from '../contexts/ToastContext';
+import { useNetwork } from '../contexts/NetworkContext';
 
 // Format market cap with appropriate suffix (K, M, B)
 function formatMarketCap(value: number): string {
@@ -35,6 +36,7 @@ interface ListNewETFProps {
 export function ListNewETF({ onNavigate }: ListNewETFProps) {
   const { publicKey, connected } = useWallet();
   const { addToast, updateToast } = useToastContext();
+  const { network } = useNetwork();
   const [etfName, setEtfName] = useState('');
   const [tokenAllocations, setTokenAllocations] = useState<TokenAllocation[]>([
     { id: '1', address: '', symbol: '', name: '', image: '', marketCap: 0, percentage: 33.33 },
@@ -263,12 +265,13 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
         type: 'etf_create',
         status: 'pending',
         message: `Creating ETF "${etfName}"...`,
-        network: 'devnet',
+        network: network === 'mainnet-beta' ? 'mainnet' : 'devnet',
       });
 
-      const response = await apiPost<{ success: boolean; error?: string; etf?: any }>('/api/etfs/create', {
+      const response = await apiPost<{ success: boolean; error?: string; etf?: any; txHash?: string; explorerUrl?: string }>('/api/etfs/create', {
         name: etfName,
         userId: publicKey!.toBase58(),  // This is the creator's wallet address
+        network: network,
         tokens: validTokens.map(t => ({
           address: t.address,
           symbol: t.symbol || 'UNKNOWN',
@@ -283,7 +286,7 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
         updateToast(toastId, {
           status: 'success',
           message: `Successfully created ETF "${etfName}"!`,
-          txSignature: response.etf.transaction_signature,
+          txSignature: response.txHash,
         });
         onNavigate('dashboard');
       } else {
@@ -313,31 +316,31 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
         <h1 className="text-5xl text-center tracking-tight">List New ETF</h1>
 
         {!connected && (
-          <div className="rounded-2xl border border-yellow-500/50 bg-yellow-500/10 backdrop-blur-sm p-6 text-center">
+          <div className="rounded-2xl border border-yellow-500/50 backdrop-blur-sm p-6 text-center">
             <p className="text-yellow-200">Please connect your wallet to create an ETF</p>
           </div>
         )}
 
         {error && (
-          <div className="rounded-2xl border-2 border-red-500 bg-transparent backdrop-blur-sm p-6 text-center">
+          <div className="rounded-2xl border-2 border-red-500 backdrop-blur-sm p-6 text-center">
             <p className="text-red-200">{error}</p>
           </div>
         )}
 
         {/* ETF Name Section */}
-        <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-8 transition-all duration-300 hover:border-white/20">
+        <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-8 transition-all duration-300 hover:border-white/20">
           <label className="block mb-4">ETF Name</label>
           <input
             type="text"
             value={etfName}
             onChange={(e) => setEtfName(e.target.value)}
             placeholder="My Custom Token ETF"
-            className="w-full px-6 py-4 rounded-xl bg-black/40 border border-white/10 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
+            className="w-full px-6 py-4 rounded-xl border border-white/10 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
           />
         </div>
 
         {/* Token Contract Addresses Section */}
-        <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-8 transition-all duration-300 hover:border-white/20">
+        <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-8 transition-all duration-300 hover:border-white/20">
           <div className="text-center mb-8">
             <h2 className="text-3xl mb-3">Token Allocations</h2>
             <p className="text-white/60">
@@ -350,21 +353,21 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
 
           <div className="space-y-4 mb-6">
             {tokenAllocations.map((token) => (
-              <div key={token.id} className="rounded-xl border border-white/10 bg-black/40 p-4">
+              <div key={token.id} className="rounded-xl border border-white/10 p-4">
                 <div className="flex items-center gap-4 mb-3">
                   <input
                     type="text"
                     value={token.address}
                     onChange={(e) => updateTokenAddress(token.id, e.target.value)}
                     placeholder="Token contract address..."
-                    className="flex-1 px-4 py-3 rounded-lg bg-black/60 border border-white/10 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all text-sm"
+                    className="flex-1 px-4 py-3 rounded-lg border border-white/10 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all text-sm"
                   />
                   <input
                     type="number"
                     value={token.percentage}
                     onChange={(e) => updateTokenPercentage(token.id, parseFloat(e.target.value) || 0)}
                     placeholder="50"
-                    className="w-20 px-3 py-3 rounded-lg bg-black/60 border border-white/10 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all text-sm text-center"
+                    className="w-20 px-3 py-3 rounded-lg border border-white/10 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all text-sm text-center"
                   />
                   <span className="text-white/60 text-sm">%</span>
                   <button
@@ -418,10 +421,10 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
 
         {/* Summary & Fee Section */}
         {tokenAllocations.some(t => t.address && t.marketCap > 0) && (
-          <div className="rounded-2xl border-2 border-emerald-500 bg-transparent backdrop-blur-sm p-6 space-y-4">
+          <div className="rounded-2xl border-2 border-emerald-500 backdrop-blur-sm p-6 space-y-4">
             <h3 className="text-lg font-medium text-emerald-400">ETF Summary</h3>
             <div className="grid grid-cols-2 gap-4">
-              <div className="rounded-lg bg-black/40 p-4">
+              <div className="rounded-lg border border-white/10 p-4">
                 <p className="text-xs text-white/60 mb-1">Total Market Cap</p>
                 <p className="text-xl text-white">
                   {(() => {
@@ -436,7 +439,7 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
                   })()}
                 </p>
               </div>
-              <div className="rounded-lg bg-black/40 p-4">
+              <div className="rounded-lg border border-white/10 p-4">
                 <p className="text-xs text-white/60 mb-1">Tokens Included</p>
                 <p className="text-xl text-white">{tokenAllocations.filter(t => t.address).length}</p>
               </div>

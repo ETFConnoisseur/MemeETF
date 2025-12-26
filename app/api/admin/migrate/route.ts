@@ -15,7 +15,8 @@ export async function POST(request: NextRequest) {
     // Run migrations in order
     const migrations = [
       '001_initial_schema.sql',
-      '004_fix_critical_schema_issues.sql'
+      '004_fix_critical_schema_issues.sql',
+      '005_add_network_support.sql'
     ];
 
     for (const migrationFile of migrations) {
