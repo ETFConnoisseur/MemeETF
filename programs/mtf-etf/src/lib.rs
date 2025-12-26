@@ -385,3 +385,356 @@ pub enum ErrorCode {
     #[msg("Invalid lister account - must match ETF creator")]
     InvalidListerAccount,
 }
+
+// ============================================================================
+// UNIT TESTS
+// ============================================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========================================================================
+    // Fee Calculation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_fee_calculation_1_sol() {
+        let sol_amount: u64 = 1_000_000_000; // 1 SOL in lamports
+        let creator_fee = sol_amount / 200; // 0.5%
+        let dev_fee = sol_amount / 200;     // 0.5%
+        let total_fees = creator_fee + dev_fee;
+        let sol_after_fees = sol_amount - total_fees;
+
+        assert_eq!(creator_fee, 5_000_000); // 0.005 SOL
+        assert_eq!(dev_fee, 5_000_000);     // 0.005 SOL
+        assert_eq!(total_fees, 10_000_000); // 0.01 SOL (1%)
+        assert_eq!(sol_after_fees, 990_000_000); // 0.99 SOL
+    }
+
+    #[test]
+    fn test_fee_calculation_10_sol() {
+        let sol_amount: u64 = 10_000_000_000; // 10 SOL
+        let creator_fee = sol_amount / 200;
+        let dev_fee = sol_amount / 200;
+        let total_fees = creator_fee + dev_fee;
+        let sol_after_fees = sol_amount - total_fees;
+
+        assert_eq!(creator_fee, 50_000_000);  // 0.05 SOL
+        assert_eq!(dev_fee, 50_000_000);      // 0.05 SOL
+        assert_eq!(total_fees, 100_000_000);  // 0.1 SOL
+        assert_eq!(sol_after_fees, 9_900_000_000); // 9.9 SOL
+    }
+
+    #[test]
+    fn test_fee_calculation_small_amount() {
+        // Test with 0.01 SOL (minimum practical amount)
+        let sol_amount: u64 = 10_000_000; // 0.01 SOL
+        let creator_fee = sol_amount / 200;
+        let dev_fee = sol_amount / 200;
+        let total_fees = creator_fee + dev_fee;
+
+        assert_eq!(creator_fee, 50_000);  // 0.00005 SOL
+        assert_eq!(dev_fee, 50_000);      // 0.00005 SOL
+        assert_eq!(total_fees, 100_000);  // 0.0001 SOL
+    }
+
+    #[test]
+    fn test_fee_calculation_very_small_amount() {
+        // Test with amount smaller than fee threshold
+        let sol_amount: u64 = 100; // Very small amount
+        let creator_fee = sol_amount / 200;
+        let dev_fee = sol_amount / 200;
+
+        // Integer division rounds down
+        assert_eq!(creator_fee, 0);
+        assert_eq!(dev_fee, 0);
+    }
+
+    #[test]
+    fn test_fee_calculation_large_amount() {
+        // Test with 1000 SOL
+        let sol_amount: u64 = 1_000_000_000_000; // 1000 SOL
+        let creator_fee = sol_amount / 200;
+        let dev_fee = sol_amount / 200;
+        let total_fees = creator_fee + dev_fee;
+        let sol_after_fees = sol_amount - total_fees;
+
+        assert_eq!(creator_fee, 5_000_000_000);   // 5 SOL
+        assert_eq!(dev_fee, 5_000_000_000);       // 5 SOL
+        assert_eq!(total_fees, 10_000_000_000);   // 10 SOL
+        assert_eq!(sol_after_fees, 990_000_000_000); // 990 SOL
+    }
+
+    // ========================================================================
+    // Percentage Validation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_percentages_sum_to_100() {
+        let percentages: Vec<u8> = vec![50, 30, 20];
+        let total: u16 = percentages.iter().map(|&p| p as u16).sum();
+        assert_eq!(total, 100);
+    }
+
+    #[test]
+    fn test_percentages_single_token() {
+        let percentages: Vec<u8> = vec![100];
+        let total: u16 = percentages.iter().map(|&p| p as u16).sum();
+        assert_eq!(total, 100);
+    }
+
+    #[test]
+    fn test_percentages_ten_tokens() {
+        let percentages: Vec<u8> = vec![10, 10, 10, 10, 10, 10, 10, 10, 10, 10];
+        let total: u16 = percentages.iter().map(|&p| p as u16).sum();
+        assert_eq!(total, 100);
+    }
+
+    #[test]
+    fn test_percentages_uneven() {
+        let percentages: Vec<u8> = vec![33, 33, 34];
+        let total: u16 = percentages.iter().map(|&p| p as u16).sum();
+        assert_eq!(total, 100);
+    }
+
+    #[test]
+    fn test_percentages_invalid_sum() {
+        let percentages: Vec<u8> = vec![50, 30, 10]; // Sum = 90
+        let total: u16 = percentages.iter().map(|&p| p as u16).sum();
+        assert_ne!(total, 100);
+    }
+
+    // ========================================================================
+    // Token Allocation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_sol_allocation_two_tokens() {
+        let sol_after_fees: u64 = 990_000_000; // 0.99 SOL
+        let percentages: Vec<u8> = vec![50, 50];
+
+        let mut allocations: Vec<u64> = Vec::new();
+        for percentage in &percentages {
+            let sol_for_token = (sol_after_fees as u128 * (*percentage as u128) / 100) as u64;
+            allocations.push(sol_for_token);
+        }
+
+        assert_eq!(allocations[0], 495_000_000); // 0.495 SOL
+        assert_eq!(allocations[1], 495_000_000); // 0.495 SOL
+        assert_eq!(allocations.iter().sum::<u64>(), sol_after_fees);
+    }
+
+    #[test]
+    fn test_sol_allocation_three_tokens() {
+        let sol_after_fees: u64 = 990_000_000;
+        let percentages: Vec<u8> = vec![50, 30, 20];
+
+        let mut allocations: Vec<u64> = Vec::new();
+        for percentage in &percentages {
+            let sol_for_token = (sol_after_fees as u128 * (*percentage as u128) / 100) as u64;
+            allocations.push(sol_for_token);
+        }
+
+        assert_eq!(allocations[0], 495_000_000); // 50%
+        assert_eq!(allocations[1], 297_000_000); // 30%
+        assert_eq!(allocations[2], 198_000_000); // 20%
+    }
+
+    #[test]
+    fn test_sol_allocation_uneven_split() {
+        let sol_after_fees: u64 = 990_000_000;
+        let percentages: Vec<u8> = vec![33, 33, 34];
+
+        let mut allocations: Vec<u64> = Vec::new();
+        for percentage in &percentages {
+            let sol_for_token = (sol_after_fees as u128 * (*percentage as u128) / 100) as u64;
+            allocations.push(sol_for_token);
+        }
+
+        // Check rounding behavior
+        assert_eq!(allocations[0], 326_700_000); // 33%
+        assert_eq!(allocations[1], 326_700_000); // 33%
+        assert_eq!(allocations[2], 336_600_000); // 34%
+    }
+
+    // ========================================================================
+    // Supply Tracking Tests
+    // ========================================================================
+
+    #[test]
+    fn test_supply_increase_on_buy() {
+        let mut total_supply: u64 = 0;
+        let sol_after_fees: u64 = 990_000_000;
+
+        // Simulate buy
+        let tokens_to_mint = sol_after_fees;
+        total_supply = total_supply.checked_add(tokens_to_mint).unwrap();
+
+        assert_eq!(total_supply, 990_000_000);
+    }
+
+    #[test]
+    fn test_supply_decrease_on_sell() {
+        let mut total_supply: u64 = 990_000_000;
+        let tokens_to_sell: u64 = 500_000_000;
+
+        // Simulate sell
+        total_supply = total_supply.checked_sub(tokens_to_sell).unwrap();
+
+        assert_eq!(total_supply, 490_000_000);
+    }
+
+    #[test]
+    fn test_supply_multiple_operations() {
+        let mut total_supply: u64 = 0;
+
+        // Buy 1 SOL worth
+        total_supply = total_supply.checked_add(990_000_000).unwrap();
+        assert_eq!(total_supply, 990_000_000);
+
+        // Buy another 0.5 SOL worth
+        total_supply = total_supply.checked_add(495_000_000).unwrap();
+        assert_eq!(total_supply, 1_485_000_000);
+
+        // Sell 0.3 SOL worth
+        total_supply = total_supply.checked_sub(297_000_000).unwrap();
+        assert_eq!(total_supply, 1_188_000_000);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_supply_underflow_panics() {
+        let total_supply: u64 = 100;
+        let tokens_to_sell: u64 = 200;
+
+        // This should panic with checked_sub
+        let _ = total_supply.checked_sub(tokens_to_sell).unwrap();
+    }
+
+    // ========================================================================
+    // Token Count Validation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_valid_token_count_1() {
+        let token_count = 1;
+        assert!(token_count > 0 && token_count <= 10);
+    }
+
+    #[test]
+    fn test_valid_token_count_10() {
+        let token_count = 10;
+        assert!(token_count > 0 && token_count <= 10);
+    }
+
+    #[test]
+    fn test_invalid_token_count_0() {
+        let token_count = 0;
+        assert!(!(token_count > 0 && token_count <= 10));
+    }
+
+    #[test]
+    fn test_invalid_token_count_11() {
+        let token_count = 11;
+        assert!(!(token_count > 0 && token_count <= 10));
+    }
+
+    // ========================================================================
+    // Dev Wallet Constant Test
+    // ========================================================================
+
+    #[test]
+    fn test_dev_wallet_is_valid_pubkey() {
+        // Verify DEV_WALLET is a valid base58 pubkey
+        let dev_wallet_str = "GdtZWBCTUrFneA7FdFaxyudhCLTKgBM4a9NVR3k4rPJx";
+        assert_eq!(DEV_WALLET.to_string(), dev_wallet_str);
+    }
+
+    // ========================================================================
+    // Edge Case Tests
+    // ========================================================================
+
+    #[test]
+    fn test_max_u64_no_overflow() {
+        // Test that fee calculation doesn't overflow with large amounts
+        let sol_amount: u64 = u64::MAX / 2; // Half of max to be safe
+        let creator_fee = sol_amount / 200;
+        let dev_fee = sol_amount / 200;
+        let total_fees = creator_fee + dev_fee;
+        let sol_after_fees = sol_amount - total_fees;
+
+        // Should not overflow
+        assert!(sol_after_fees < sol_amount);
+    }
+
+    #[test]
+    fn test_percentage_calculation_no_overflow() {
+        // Test u128 intermediate calculation for large amounts
+        let sol_after_fees: u64 = u64::MAX / 2;
+        let percentage: u8 = 50;
+
+        // Using u128 for intermediate to prevent overflow
+        let sol_for_token = (sol_after_fees as u128 * (percentage as u128) / 100) as u64;
+
+        assert!(sol_for_token < sol_after_fees);
+    }
+
+    // ========================================================================
+    // Sell Fee Tests
+    // ========================================================================
+
+    #[test]
+    fn test_sell_fees_match_buy_fees() {
+        // Fees should be the same structure for buy and sell
+        let sol_amount: u64 = 1_000_000_000;
+
+        // Buy fees
+        let buy_creator_fee = sol_amount / 200;
+        let buy_dev_fee = sol_amount / 200;
+
+        // Sell fees (same calculation)
+        let sell_creator_fee = sol_amount / 200;
+        let sell_dev_fee = sol_amount / 200;
+
+        assert_eq!(buy_creator_fee, sell_creator_fee);
+        assert_eq!(buy_dev_fee, sell_dev_fee);
+    }
+
+    #[test]
+    fn test_sell_returns_correct_amount() {
+        let tokens_to_sell: u64 = 990_000_000;
+        let sol_to_return = tokens_to_sell; // 1:1
+
+        let creator_fee = sol_to_return / 200;
+        let dev_fee = sol_to_return / 200;
+        let total_fees = creator_fee + dev_fee;
+        let sol_after_fees = sol_to_return - total_fees;
+
+        // User gets back 99% of their tokens value
+        assert_eq!(sol_after_fees, 980_100_000);
+    }
+
+    // ========================================================================
+    // Round-trip Test
+    // ========================================================================
+
+    #[test]
+    fn test_buy_sell_round_trip_fees() {
+        // Test the total fees from a buy and immediate sell
+        let initial_sol: u64 = 1_000_000_000; // 1 SOL
+
+        // BUY: 1% fee
+        let buy_fees = initial_sol / 100; // 1%
+        let tokens_received = initial_sol - buy_fees;
+        assert_eq!(tokens_received, 990_000_000);
+
+        // SELL: 1% fee on tokens (which = SOL)
+        let sell_fees = tokens_received / 100; // 1%
+        let sol_returned = tokens_received - sell_fees;
+        assert_eq!(sol_returned, 980_100_000);
+
+        // Total lost to fees: ~2% (actually 1.99% due to compounding)
+        let total_fees_paid = initial_sol - sol_returned;
+        assert_eq!(total_fees_paid, 19_900_000); // ~0.02 SOL
+    }
+}

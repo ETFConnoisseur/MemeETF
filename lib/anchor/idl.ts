@@ -60,7 +60,8 @@ export const IDL = {
       "name": "buyEtf",
       "docs": [
         "Buy into an ETF by depositing SOL.",
-        "SOL is transferred to the ETF vault, and ETF tokens are minted to the investor."
+        "Fees: 0.5% to ETF creator, 0.5% to dev wallet (automatic transfer).",
+        "Remaining SOL is used for token swaps via backend."
       ],
       "accounts": [
         {
@@ -74,22 +75,16 @@ export const IDL = {
           "isSigner": true
         },
         {
-          "name": "investorAta",
+          "name": "listerAccount",
           "isMut": true,
           "isSigner": false,
-          "docs": ["Investor's SOL account"]
+          "docs": ["ETF creator's account for receiving 0.5% fee"]
         },
         {
-          "name": "etfVault",
+          "name": "devWallet",
           "isMut": true,
           "isSigner": false,
-          "docs": ["ETF's SOL vault"]
-        },
-        {
-          "name": "listerAta",
-          "isMut": true,
-          "isSigner": false,
-          "docs": ["Lister's account for receiving fees"]
+          "docs": ["Dev wallet for receiving 0.5% fee (hardcoded in contract)"]
         },
         {
           "name": "systemProgram",
@@ -101,6 +96,12 @@ export const IDL = {
         {
           "name": "solAmount",
           "type": "u64"
+        },
+        {
+          "name": "tokenPercentages",
+          "type": {
+            "vec": "u8"
+          }
         }
       ]
     },
@@ -108,7 +109,8 @@ export const IDL = {
       "name": "sellEtf",
       "docs": [
         "Sell ETF tokens back for SOL.",
-        "ETF tokens are burned and SOL is returned to the investor."
+        "Fees: 0.5% to ETF creator, 0.5% to dev wallet (automatic transfer).",
+        "Remaining SOL is returned to the investor."
       ],
       "accounts": [
         {
@@ -122,22 +124,16 @@ export const IDL = {
           "isSigner": true
         },
         {
-          "name": "investorAta",
+          "name": "listerAccount",
           "isMut": true,
           "isSigner": false,
-          "docs": ["Investor's SOL account"]
+          "docs": ["ETF creator's account for receiving 0.5% fee"]
         },
         {
-          "name": "etfVault",
+          "name": "devWallet",
           "isMut": true,
           "isSigner": false,
-          "docs": ["ETF's SOL vault"]
-        },
-        {
-          "name": "listerAta",
-          "isMut": true,
-          "isSigner": false,
-          "docs": ["Lister's account for receiving fees"]
+          "docs": ["Dev wallet for receiving 0.5% fee (hardcoded in contract)"]
         },
         {
           "name": "systemProgram",
@@ -153,9 +149,10 @@ export const IDL = {
       ]
     },
     {
-      "name": "claimFees",
+      "name": "closeEtf",
       "docs": [
-        "Claim accumulated fees as the ETF lister."
+        "Close an ETF and reclaim rent.",
+        "Only the lister can close, and only if total_supply is 0."
       ],
       "accounts": [
         {
@@ -167,18 +164,6 @@ export const IDL = {
           "name": "lister",
           "isMut": true,
           "isSigner": true
-        },
-        {
-          "name": "listerAta",
-          "isMut": true,
-          "isSigner": false,
-          "docs": ["Lister's account for receiving fees"]
-        },
-        {
-          "name": "etfVault",
-          "isMut": true,
-          "isSigner": false,
-          "docs": ["ETF's SOL vault"]
         },
         {
           "name": "systemProgram",
@@ -236,6 +221,31 @@ export const IDL = {
       "code": 6002,
       "name": "Unauthorized",
       "msg": "You are not authorized to perform this action"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidTokenPercentages",
+      "msg": "Invalid token percentages - must sum to 100"
+    },
+    {
+      "code": 6004,
+      "name": "CannotCloseWithSupply",
+      "msg": "Cannot close ETF with outstanding supply"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidTokenCount",
+      "msg": "Invalid token count - must be between 1 and 10"
+    },
+    {
+      "code": 6006,
+      "name": "InvalidDevWallet",
+      "msg": "Invalid dev wallet address"
+    },
+    {
+      "code": 6007,
+      "name": "InvalidListerAccount",
+      "msg": "Invalid lister account - must match ETF creator"
     }
   ],
   "metadata": {

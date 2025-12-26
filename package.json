@@ -18,7 +18,9 @@
     "test:db": "node --env-file=.env scripts/test-db.cjs",
     "anchor:build": "anchor build",
     "anchor:deploy": "anchor deploy --provider.cluster devnet",
-    "anchor:test": "anchor test"
+    "anchor:test": "anchor test",
+    "test": "ts-mocha -p ./tests/tsconfig.json -t 1000000 tests/**/*.ts",
+    "test:unit": "ts-mocha -p ./tests/tsconfig.json tests/**/*.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.30.0",
@@ -93,14 +95,19 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@tailwindcss/vite": "4.1.12",
+    "@types/chai": "^4.3.0",
+    "@types/mocha": "^10.0.0",
     "@types/node": "^20",
     "@types/pg": "^8.16.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "4.7.0",
+    "chai": "^4.3.0",
     "eslint": "^9",
     "eslint-config-next": "16.1.0",
+    "mocha": "^10.0.0",
     "tailwindcss": "^4",
+    "ts-mocha": "^10.0.0",
     "typescript": "^5",
     "vite": "6.3.5"
   }
