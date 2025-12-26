@@ -2,13 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDatabasePool } from '@/lib/database/connection';
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { getConnection } from '@/lib/solana/wallet';
+import { withTransaction, addProtocolBalance, recordTransaction } from '@/lib/database/transactions';
 
 export async function POST(request: NextRequest) {
   let body: any = {};
   try {
     body = await request.json();
-    const { userId, amount, txHash } = body;
+    const { userId, amount, txHash, network = 'devnet' } = body;
 
+    // Validate inputs
     if (!userId) {
       return NextResponse.json(
         { error: 'User ID (wallet address) required' },
@@ -30,45 +32,60 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (network !== 'devnet' && network !== 'mainnet-beta') {
+      return NextResponse.json({ error: 'Invalid network. Must be devnet or mainnet-beta' }, { status: 400 });
+    }
+
     const pool = getDatabasePool();
     if (!pool) {
       console.error('[Deposit API] Database pool is null');
       return NextResponse.json({ error: 'Database not configured' }, { status: 503 });
     }
 
-    // Check if this transaction has already been processed
+    console.log(`[Deposit] Processing deposit of ${amount} SOL on ${network}`);
+    console.log(`[Deposit] User: ${userId}, TX: ${txHash}`);
+
+    // Check if this transaction has already been processed (prevents double-spend)
     let existingTx;
     try {
       existingTx = await pool.query(
-      'SELECT id FROM transactions WHERE tx_hash = $1',
-      [txHash]
+        'SELECT id, type, status FROM transactions WHERE tx_hash = $1',
+        [txHash]
       );
     } catch (queryError: any) {
       console.error('[Deposit API] Query failed:', queryError);
       if (queryError.code === '42P01') {
-        // Table doesn't exist - this is a critical error
-        return NextResponse.json({ 
-          error: 'Database tables not initialized. Please run migrations.' 
+        return NextResponse.json({
+          error: 'Database tables not initialized. Please run migrations.'
         }, { status: 503 });
       }
       throw queryError;
     }
 
     if (existingTx.rows.length > 0) {
+      console.warn(`[Deposit] Transaction ${txHash} already processed`);
       return NextResponse.json(
-        { error: 'Transaction already processed' },
+        {
+          error: 'Transaction already processed',
+          existingTransaction: {
+            type: existingTx.rows[0].type,
+            status: existingTx.rows[0].status
+          }
+        },
         { status: 400 }
       );
     }
 
-    // Verify transaction on Solana (optional but recommended)
+    // Verify transaction on blockchain
+    const connection = getConnection(network);
+    let txInfo;
+
     try {
-      const connection = getConnection('devnet');
-      const txInfo = await connection.getTransaction(txHash, {
+      txInfo = await connection.getTransaction(txHash, {
         commitment: 'confirmed',
         maxSupportedTransactionVersion: 0
       });
-      
+
       if (!txInfo) {
         return NextResponse.json(
           { error: 'Transaction not found on blockchain. Please wait for confirmation.' },
@@ -78,17 +95,26 @@ export async function POST(request: NextRequest) {
 
       // Verify the transaction was successful
       if (txInfo.meta?.err) {
+        console.error('[Deposit] Transaction failed on blockchain:', txInfo.meta.err);
         return NextResponse.json(
           { error: 'Transaction failed on blockchain' },
           { status: 400 }
         );
       }
-    } catch (verifyError) {
-      console.warn('[Deposit] Could not verify transaction on chain:', verifyError);
-      // Continue anyway for testing - in production, you might want to fail here
+
+      console.log('[Deposit] ✅ Transaction verified on blockchain');
+    } catch (verifyError: any) {
+      console.error('[Deposit] Could not verify transaction on chain:', verifyError);
+      return NextResponse.json(
+        {
+          error: 'Could not verify transaction on blockchain',
+          details: verifyError.message
+        },
+        { status: 500 }
+      );
     }
 
-    // Get user's protocol wallet and current protocol balance
+    // Get user info
     const userResult = await pool.query(
       'SELECT wallet_address, protocol_sol_balance, protocol_wallet_address FROM users WHERE wallet_address = $1',
       [userId]
@@ -107,31 +133,52 @@ export async function POST(request: NextRequest) {
 
     if (!protocolWalletAddress) {
       return NextResponse.json(
-        { error: 'Protocol wallet not initialized' },
+        { error: 'Protocol wallet not initialized. Please create wallet first.' },
         { status: 400 }
       );
     }
 
-    // Update protocol balance
-    await pool.query(
-      'UPDATE users SET protocol_sol_balance = protocol_sol_balance + $1 WHERE wallet_address = $2',
-      [amount, userId]
-    );
+    // ATOMIC TRANSACTION: Update balance + Record in deposits + Record in transactions
+    await withTransaction(pool, async (client) => {
+      // Add to protocol balance
+      await addProtocolBalance(client, userId, amount);
 
-    // Record in transactions table
-    await pool.query(
-      `INSERT INTO transactions (user_id, type, amount, tx_hash, status)
-       VALUES ($1, 'deposit', $2, $3, 'completed')`,
-      [userId, amount, txHash]
-    );
+      // Record in deposits table
+      await client.query(
+        `INSERT INTO deposits (user_id, amount, tx_signature, from_address, to_address, status, confirmed_at)
+         VALUES ($1, $2, $3, $4, $5, 'confirmed', CURRENT_TIMESTAMP)`,
+        [userId, amount, txHash, userId, protocolWalletAddress]
+      );
+
+      // Record in transactions table
+      await recordTransaction(client, {
+        userId,
+        type: 'deposit',
+        amount,
+        txHash,
+        status: 'completed',
+        metadata: {
+          from_address: userId,
+          to_address: protocolWalletAddress,
+          network: network,
+          verified_on_chain: true
+        }
+      });
+    });
 
     const newBalance = currentBalance + amount;
+
+    console.log(`[Deposit] ✅ Deposit processed successfully. New balance: ${newBalance} SOL`);
 
     return NextResponse.json({
       success: true,
       newBalance,
       txHash,
-      message: `Successfully deposited ${amount} SOL`
+      network,
+      message: `Successfully deposited ${amount} SOL`,
+      explorerUrl: network === 'mainnet-beta'
+        ? `https://solscan.io/tx/${txHash}`
+        : `https://solscan.io/tx/${txHash}?cluster=devnet`
     });
 
   } catch (error: any) {
@@ -147,8 +194,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: 'Failed to process deposit',
-        details: error.message,
-        errorCode: error.code
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
       },
       { status: 500 }
     );
@@ -160,6 +206,7 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const txHash = searchParams.get('txHash');
+    const network = searchParams.get('network') || 'devnet';
 
     if (!txHash) {
       return NextResponse.json(
@@ -194,7 +241,7 @@ export async function GET(request: NextRequest) {
 
     // Check on blockchain
     try {
-      const connection = getConnection('devnet');
+      const connection = getConnection(network as 'devnet' | 'mainnet-beta');
       const txInfo = await connection.getTransaction(txHash, {
         commitment: 'confirmed',
         maxSupportedTransactionVersion: 0
