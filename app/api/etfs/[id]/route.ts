@@ -118,11 +118,9 @@ export async function DELETE(
         
         if (refundAmount <= 0) continue;
 
-        // Update the investor's wallet balance (add back their invested SOL)
+        // Update the investor's protocol balance (add back their invested SOL)
         await pool.query(
-          `UPDATE wallets 
-           SET sol_balance = sol_balance + $1
-           WHERE user_id = $2`,
+          'UPDATE users SET protocol_sol_balance = protocol_sol_balance + $1 WHERE wallet_address = $2',
           [refundAmount, investor.user_id]
         );
 

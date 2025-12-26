@@ -118,11 +118,26 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Check if ETF already exists on-chain for this wallet
+    // Check if user already has an active ETF in the database
+    const existingEtfCheck = await pool.query(
+      'SELECT id, name FROM etf_listings WHERE creator = $1',
+      [userId]
+    );
+
+    if (existingEtfCheck.rows.length > 0) {
+      return NextResponse.json({
+        success: false,
+        error: `You already have an active ETF "${existingEtfCheck.rows[0].name}". Delete it first to create a new one.`
+      }, { status: 400 });
+    }
+
+    // Check if ETF PDA already exists on-chain for this wallet
     const [etfPda] = getEtfPda(keypair.publicKey);
     const existingAccount = await connection.getAccountInfo(etfPda);
     if (existingAccount) {
-      return NextResponse.json({ success: false, error: 'You already have an ETF. One per wallet.' }, { status: 400 });
+      console.log('[ETF Create] Warning: PDA exists on-chain but not in database. This may indicate a previous deletion. Proceeding with creation...');
+      // Note: On mainnet, you'd want to close the existing PDA first or use a different approach
+      // For now on devnet, we'll allow it to fail at the contract level if truly duplicate
     }
 
     // Initialize ETF on-chain
