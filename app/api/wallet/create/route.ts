@@ -37,6 +37,12 @@ export async function POST(request: NextRequest) {
       );
 
       if (existing.rows.length > 0) {
+        // Update the user's protocol_wallet_address if it's not set
+        await pool.query(
+          `UPDATE users SET protocol_wallet_address = $1 WHERE wallet_address = $2 AND (protocol_wallet_address IS NULL OR protocol_wallet_address = '')`,
+          [existing.rows[0].public_key, userId]
+        );
+
         return NextResponse.json({
           success: true,
           wallet: {
