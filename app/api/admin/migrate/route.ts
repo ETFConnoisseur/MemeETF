@@ -75,6 +75,20 @@ export async function POST(request: NextRequest) {
       console.log('[Migration] metadata index may already exist:', e.message);
     }
 
+    // Add missing columns to investments table
+    try {
+      await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS is_sold BOOLEAN DEFAULT FALSE`);
+      await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS sol_invested NUMERIC(20, 8) DEFAULT 0`);
+      await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS purchase_mc NUMERIC(20, 2) DEFAULT 0`);
+      await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS purchase_24h_change NUMERIC(10, 2) DEFAULT 0`);
+      await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS tokens_purchased JSONB`);
+      await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS sol_received NUMERIC(20, 8) DEFAULT 0`);
+      await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS sold_at TIMESTAMP`);
+      console.log('[Migration] Added missing columns to investments table');
+    } catch (e: any) {
+      console.log('[Migration] Investments columns may already exist:', e.message);
+    }
+
     return NextResponse.json({
       success: true,
       message: 'Migration completed successfully. All tables created.',
