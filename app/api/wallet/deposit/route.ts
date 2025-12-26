@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
 
     // Get user's protocol wallet and current protocol balance
     const userResult = await pool.query(
-      'SELECT id, protocol_sol_balance, protocol_wallet_address FROM users WHERE id = $1',
+      'SELECT wallet_address, protocol_sol_balance, protocol_wallet_address FROM users WHERE wallet_address = $1',
       [userId]
     );
 
@@ -114,18 +114,11 @@ export async function POST(request: NextRequest) {
 
     // Update protocol balance
     await pool.query(
-      'UPDATE users SET protocol_sol_balance = protocol_sol_balance + $1 WHERE id = $2',
+      'UPDATE users SET protocol_sol_balance = protocol_sol_balance + $1 WHERE wallet_address = $2',
       [amount, userId]
     );
 
-    // Record deposit in deposits table
-    await pool.query(
-      `INSERT INTO deposits (user_id, amount, tx_signature, from_address, to_address, status, confirmed_at)
-       VALUES ($1, $2, $3, $4, $5, 'confirmed', CURRENT_TIMESTAMP)`,
-      [userId, amount, txHash, userId, protocolWalletAddress]
-    );
-
-    // Also record in transactions table for compatibility
+    // Record in transactions table
     await pool.query(
       `INSERT INTO transactions (user_id, type, amount, tx_hash, status)
        VALUES ($1, 'deposit', $2, $3, 'completed')`,

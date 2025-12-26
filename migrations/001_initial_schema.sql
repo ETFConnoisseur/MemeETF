@@ -2,6 +2,8 @@
 CREATE TABLE IF NOT EXISTS users (
   wallet_address VARCHAR(44) PRIMARY KEY,
   x_username VARCHAR(255),
+  protocol_sol_balance NUMERIC(20, 8) DEFAULT 0,
+  protocol_wallet_address VARCHAR(44),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

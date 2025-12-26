@@ -30,6 +30,19 @@ export async function POST(request: NextRequest) {
       console.log('[Migration] pnl column may already exist:', e.message);
     }
 
+    // Add protocol wallet columns to users table
+    try {
+      await pool.query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS protocol_sol_balance NUMERIC(20, 8) DEFAULT 0
+      `);
+      await pool.query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS protocol_wallet_address VARCHAR(44)
+      `);
+      console.log('[Migration] Added protocol wallet columns to users');
+    } catch (e: any) {
+      console.log('[Migration] Protocol wallet columns may already exist:', e.message);
+    }
+
     // Update the type check constraint to include 'refund' and 'token_swap'
     try {
       await pool.query(`ALTER TABLE transactions DROP CONSTRAINT IF EXISTS transactions_type_check`);
