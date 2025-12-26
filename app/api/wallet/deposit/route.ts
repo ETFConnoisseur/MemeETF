@@ -147,7 +147,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: 'Failed to process deposit',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        details: error.message,
+        errorCode: error.code
       },
       { status: 500 }
     );
