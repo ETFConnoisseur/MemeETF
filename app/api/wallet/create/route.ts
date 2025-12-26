@@ -46,10 +46,13 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      // Create user if doesn't exist (upsert)
+      // Create user if doesn't exist and set protocol_wallet_address
       await pool.query(
-        `INSERT INTO users (wallet_address) VALUES ($1) ON CONFLICT (wallet_address) DO NOTHING`,
-        [userId]
+        `INSERT INTO users (wallet_address, protocol_wallet_address)
+         VALUES ($1, $2)
+         ON CONFLICT (wallet_address)
+         DO UPDATE SET protocol_wallet_address = $2`,
+        [userId, publicKey]
       );
 
       // Create wallet
