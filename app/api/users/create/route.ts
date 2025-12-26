@@ -52,9 +52,9 @@ export async function POST(request: NextRequest) {
         [walletAddress]
       );
 
-      // Get wallet info
+      // Get wallet info and protocol balance
       const walletResult = await pool.query(
-        'SELECT public_key, sol_balance FROM wallets WHERE user_id = $1',
+        'SELECT w.public_key, u.protocol_sol_balance FROM wallets w JOIN users u ON w.user_id = u.wallet_address WHERE w.user_id = $1',
         [walletAddress]
       );
 
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
         },
         protocolWallet: wallet ? {
           publicKey: wallet.public_key,
-          balance: parseFloat(wallet.sol_balance),
+          balance: parseFloat(wallet.protocol_sol_balance || '0'),
         } : null,
         isNew: false,
       });
@@ -155,9 +155,9 @@ export async function GET(request: NextRequest) {
 
     const user = userResult.rows[0];
 
-    // Get wallet info
+    // Get wallet info and protocol balance
     const walletResult = await pool.query(
-      'SELECT public_key, sol_balance, exported_keys FROM wallets WHERE user_id = $1',
+      'SELECT w.public_key, w.exported_keys, u.protocol_sol_balance FROM wallets w JOIN users u ON w.user_id = u.wallet_address WHERE w.user_id = $1',
       [walletAddress]
     );
 
@@ -173,7 +173,7 @@ export async function GET(request: NextRequest) {
       },
       protocolWallet: wallet ? {
         publicKey: wallet.public_key,
-        balance: parseFloat(wallet.sol_balance),
+        balance: parseFloat(wallet.protocol_sol_balance || '0'),
         exportedKeys: wallet.exported_keys,
       } : null,
     });

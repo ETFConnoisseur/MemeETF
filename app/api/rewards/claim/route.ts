@@ -122,10 +122,9 @@ export async function POST(request: NextRequest) {
       // Still update DB if contract call fails (for testing)
     }
 
-    // Update wallet balance
+    // Update protocol balance (not wallet balance)
     await pool.query(
-      `UPDATE wallets SET sol_balance = sol_balance + $1, updated_at = CURRENT_TIMESTAMP 
-       WHERE user_id = $2`,
+      'UPDATE users SET protocol_sol_balance = protocol_sol_balance + $1 WHERE wallet_address = $2',
       [totalToClaim, userId]
     );
 
@@ -144,12 +143,12 @@ export async function POST(request: NextRequest) {
       [userId]
     );
 
-    // Get new balance
+    // Get new protocol balance
     const newBalanceResult = await pool.query(
-      'SELECT sol_balance FROM wallets WHERE user_id = $1',
+      'SELECT protocol_sol_balance FROM users WHERE wallet_address = $1',
       [userId]
     );
-    const newBalance = parseFloat(newBalanceResult.rows[0]?.sol_balance || 0);
+    const newBalance = parseFloat(newBalanceResult.rows[0]?.protocol_sol_balance || 0);
 
     return NextResponse.json({ 
       success: true,
