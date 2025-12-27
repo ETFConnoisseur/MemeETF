@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(anchor:*)",
+      "Bash(solana --version:*)",
+      "Bash(rustc:*)",
+      "Bash(timeout 15 npm run dev:*)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(solana program show:*)",
+      "Bash(solana account:*)",
+      "Bash(avm install:*)",
+      "Bash(cat:*)",
+      "Bash(cargo clean:*)",
+      "Bash(solana airdrop:*)",
+      "Bash(solana config get:*)",
+      "Bash(solana config set:*)",
+      "Bash(solana balance:*)",
+      "Bash(git config:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(cargo test:*)",
+      "Bash(npm run test:unit:*)",
+      "Bash(solana program deploy:*)",
+      "Bash(solana-keygen pubkey:*)",
+      "Bash(solana address:*)"
+    ]
+  }
+}
