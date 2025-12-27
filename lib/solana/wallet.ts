@@ -42,14 +42,45 @@ export async function getWalletBalance(publicKey: string, connection: Connection
 
 /**
  * Get connection to Solana network
+ * Uses Helius as primary, falls back to public Solana RPC
  */
 export function getConnection(network: 'mainnet-beta' | 'devnet' | 'mainnet' = 'devnet'): Connection {
   const isMainnet = network === 'mainnet' || network === 'mainnet-beta';
   const rpcUrl = isMainnet
-    ? process.env.MAINNET_RPC_URL || 'https://api.mainnet-beta.solana.com'
+    ? process.env.MAINNET_RPC_URL || process.env.MAINNET_RPC_FALLBACK || 'https://api.mainnet-beta.solana.com'
     : process.env.SOLANA_DEVNET_RPC_URL || 'https://api.devnet.solana.com';
 
   return new Connection(rpcUrl, 'confirmed');
+}
+
+/**
+ * Get connection with fallback - tries primary RPC, falls back if it fails
+ */
+export async function getConnectionWithFallback(network: 'mainnet-beta' | 'devnet' | 'mainnet' = 'devnet'): Promise<Connection> {
+  const isMainnet = network === 'mainnet' || network === 'mainnet-beta';
+
+  if (!isMainnet) {
+    const rpcUrl = process.env.SOLANA_DEVNET_RPC_URL || 'https://api.devnet.solana.com';
+    return new Connection(rpcUrl, 'confirmed');
+  }
+
+  // Try primary (Helius) first
+  const primaryRpc = process.env.MAINNET_RPC_URL;
+  const fallbackRpc = process.env.MAINNET_RPC_FALLBACK || 'https://api.mainnet-beta.solana.com';
+
+  if (primaryRpc) {
+    try {
+      const connection = new Connection(primaryRpc, 'confirmed');
+      // Test the connection with a simple call
+      await connection.getSlot();
+      return connection;
+    } catch (error) {
+      console.warn('[RPC] Primary RPC failed, using fallback:', error);
+    }
+  }
+
+  // Use fallback
+  return new Connection(fallbackRpc, 'confirmed');
 }
 
 /**

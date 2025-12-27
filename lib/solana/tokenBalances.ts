@@ -33,11 +33,12 @@ export interface WalletTokenHoldings {
 
 /**
  * Get connection to Solana network
+ * Uses Helius as primary, falls back to public Solana RPC
  */
 export function getConnection(network: 'devnet' | 'mainnet-beta'): Connection {
   const rpcUrl = network === 'devnet'
-    ? clusterApiUrl('devnet')
-    : process.env.MAINNET_RPC_URL || clusterApiUrl('mainnet-beta');
+    ? process.env.SOLANA_DEVNET_RPC_URL || clusterApiUrl('devnet')
+    : process.env.MAINNET_RPC_URL || process.env.MAINNET_RPC_FALLBACK || clusterApiUrl('mainnet-beta');
   return new Connection(rpcUrl, 'confirmed');
 }
 
