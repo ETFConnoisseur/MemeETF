@@ -128,6 +128,62 @@
     @apply bg-background text-foreground;
   }
 
+  /* Solana Wallet Adapter Button Overrides */
+  .wallet-adapter-button {
+    background: #000 !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 0.5rem !important;
+    padding: 0.5rem 1.5rem !important;
+    font-size: 0.875rem !important;
+    font-weight: 500 !important;
+    color: white !important;
+    height: auto !important;
+    transition: all 0.2s !important;
+  }
+
+  .wallet-adapter-button:hover {
+    background: rgba(255, 255, 255, 0.05) !important;
+  }
+
+  .wallet-adapter-button-trigger {
+    background: #7c3aed !important;
+    border: none !important;
+  }
+
+  .wallet-adapter-button-trigger:hover {
+    background: #6d28d9 !important;
+  }
+
+  .wallet-adapter-modal-wrapper {
+    background: rgba(0, 0, 0, 0.8) !important;
+  }
+
+  .wallet-adapter-modal-container {
+    background: #111 !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 1rem !important;
+  }
+
+  .wallet-adapter-modal-title {
+    color: white !important;
+  }
+
+  .wallet-adapter-modal-list li {
+    background: transparent !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 0.5rem !important;
+    margin-bottom: 0.5rem !important;
+  }
+
+  .wallet-adapter-modal-list li:hover {
+    background: rgba(255, 255, 255, 0.05) !important;
+  }
+
+  .wallet-adapter-modal-list .wallet-adapter-button {
+    background: transparent !important;
+    border: none !important;
+  }
+
   /**
   * Default typography styles for HTML elements (h1-h4, p, label, button, input).
   * These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them.

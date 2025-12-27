@@ -211,8 +211,8 @@ export async function getJupiterQuote(
   isDevnet: boolean = true
 ): Promise<JupiterQuoteResponse | null> {
   try {
-    // Use api.jup.ag for both devnet and mainnet
-    const baseUrl = 'https://api.jup.ag/v6';
+    // Use quote-api.jup.ag for public access (no API key needed)
+    const baseUrl = 'https://quote-api.jup.ag/v6';
 
     const params = new URLSearchParams({
       inputMint,
@@ -249,8 +249,8 @@ export async function executeJupiterSwap(
   isDevnet: boolean = true
 ): Promise<string> {
   try {
-    // Use api.jup.ag for both devnet and mainnet
-    const baseUrl = 'https://api.jup.ag/v6';
+    // Use quote-api.jup.ag for public access (no API key needed)
+    const baseUrl = 'https://quote-api.jup.ag/v6';
 
     console.log(`[JupiterSwap] Executing swap via ${baseUrl}/swap (${isDevnet ? 'devnet' : 'mainnet'})`);
 
@@ -682,7 +682,7 @@ export async function buildUnsignedSwapTransaction(
   quote: JupiterQuoteResponse,
   isDevnet: boolean = true
 ): Promise<string> {
-  const baseUrl = 'https://api.jup.ag/v6';
+  const baseUrl = 'https://quote-api.jup.ag/v6';
 
   console.log(`[JupiterSwap] Building unsigned swap for ${userWallet.toBase58().substring(0, 8)}...`);
 

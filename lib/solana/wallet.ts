@@ -46,7 +46,7 @@ export async function getWalletBalance(publicKey: string, connection: Connection
 export function getConnection(network: 'mainnet-beta' | 'devnet' | 'mainnet' = 'devnet'): Connection {
   const isMainnet = network === 'mainnet' || network === 'mainnet-beta';
   const rpcUrl = isMainnet
-    ? process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com'
+    ? process.env.MAINNET_RPC_URL || 'https://api.mainnet-beta.solana.com'
     : process.env.SOLANA_DEVNET_RPC_URL || 'https://api.devnet.solana.com';
 
   return new Connection(rpcUrl, 'confirmed');

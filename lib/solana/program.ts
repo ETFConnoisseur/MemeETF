@@ -32,9 +32,10 @@ const DISC = {
   closeEtf: getDiscriminator('close_etf'),
 };
 
-export function getConnection(network: 'devnet' | 'mainnet' = 'devnet'): Connection {
-  const rpcUrl = network === 'mainnet' 
-    ? 'https://api.mainnet-beta.solana.com'
+export function getConnection(network: 'devnet' | 'mainnet' | 'mainnet-beta' = 'devnet'): Connection {
+  const isMainnet = network === 'mainnet' || network === 'mainnet-beta';
+  const rpcUrl = isMainnet
+    ? process.env.MAINNET_RPC_URL || 'https://api.mainnet-beta.solana.com'
     : process.env.SOLANA_DEVNET_RPC_URL || 'https://api.devnet.solana.com';
   return new Connection(rpcUrl, 'confirmed');
 }
