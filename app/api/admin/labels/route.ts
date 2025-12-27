@@ -9,7 +9,7 @@ function verifyToken(request: NextRequest): boolean {
     return false;
   }
   const token = authHeader.substring(7);
-  return token && token.length >= 32;
+  return Boolean(token && token.length >= 32);
 }
 
 /**

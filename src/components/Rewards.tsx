@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
+import { useWallet } from '@solana/wallet-adapter-react';
 import { useNetwork } from '../contexts/NetworkContext';
+import { apiGet } from '../lib/api';
 import {
   Table,
   TableBody,
@@ -14,19 +16,17 @@ interface Transaction {
   signature: string;
   amount: number;
   date: string;
+  etfName?: string;
+  etfId?: string;
+  paidOut?: boolean;
 }
 
-// Mock data for display
-const mockTransactions: Transaction[] = [
-  { wallet: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU', signature: '5UfDuX6XoLvHqKEr4PZVoKD6DtWJxbsKvNFnRwGS5Kz3xFbNvSqLqR3rTqK9PdVxvKtHMqQzZLpXbKYnZbVqDKm4', amount: 2.5, date: '2025-12-26' },
-  { wallet: '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM', signature: '3KfDuX6XoLvHqKEr4PZVoKD6DtWJxbsKvNFnRwGS5Kz3xFbNvSqLqR3rTqK9PdVxvKtHMqQzZLpXbKYnZbVqDKm4', amount: 1.25, date: '2025-12-25' },
-  { wallet: '5TnDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM', signature: '4JfDuX6XoLvHqKEr4PZVoKD6DtWJxbsKvNFnRwGS5Kz3xFbNvSqLqR3rTqK9PdVxvKtHMqQzZLpXbKYnZbVqDKm4', amount: 0.75, date: '2025-12-25' },
-  { wallet: '3RnDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM', signature: '2HfDuX6XoLvHqKEr4PZVoKD6DtWJxbsKvNFnRwGS5Kz3xFbNvSqLqR3rTqK9PdVxvKtHMqQzZLpXbKYnZbVqDKm4', amount: 3.0, date: '2025-12-24' },
-  { wallet: '8QnDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM', signature: '6GfDuX6XoLvHqKEr4PZVoKD6DtWJxbsKvNFnRwGS5Kz3xFbNvSqLqR3rTqK9PdVxvKtHMqQzZLpXbKYnZbVqDKm4', amount: 0.5, date: '2025-12-24' },
-  { wallet: '2PnDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM', signature: '7FfDuX6XoLvHqKEr4PZVoKD6DtWJxbsKvNFnRwGS5Kz3xFbNvSqLqR3rTqK9PdVxvKtHMqQzZLpXbKYnZbVqDKm4', amount: 1.8, date: '2025-12-23' },
-  { wallet: '6OnDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM', signature: '8EfDuX6XoLvHqKEr4PZVoKD6DtWJxbsKvNFnRwGS5Kz3xFbNvSqLqR3rTqK9PdVxvKtHMqQzZLpXbKYnZbVqDKm4', amount: 4.2, date: '2025-12-23' },
-  { wallet: '4NnDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM', signature: '9DfDuX6XoLvHqKEr4PZVoKD6DtWJxbsKvNFnRwGS5Kz3xFbNvSqLqR3rTqK9PdVxvKtHMqQzZLpXbKYnZbVqDKm4', amount: 0.35, date: '2025-12-22' },
-];
+interface RewardsResponse {
+  success: boolean;
+  transactions: Transaction[];
+  totalFees: number;
+  unclaimedFees: number;
+}
 
 // Helper to truncate wallet address
 const truncateWallet = (wallet: string) => {
@@ -48,44 +48,120 @@ const getExplorerUrl = (signature: string, network: string) => {
 
 export function Rewards() {
   const { network } = useNetwork();
-  const [transactions] = useState<Transaction[]>(mockTransactions);
+  const { publicKey, connected } = useWallet();
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [totalFees, setTotalFees] = useState(0);
+  const [unclaimedFees, setUnclaimedFees] = useState(0);
+
+  useEffect(() => {
+    if (connected && publicKey) {
+      fetchRewards();
+    } else {
+      setTransactions([]);
+      setTotalFees(0);
+      setUnclaimedFees(0);
+      setLoading(false);
+    }
+  }, [connected, publicKey, network]);
+
+  async function fetchRewards() {
+    if (!publicKey) return;
+
+    try {
+      setLoading(true);
+      const data = await apiGet<RewardsResponse>(
+        `/api/rewards?creator=${publicKey.toBase58()}&network=${network}`,
+        { success: true, transactions: [], totalFees: 0, unclaimedFees: 0 }
+      );
+
+      if (data.success) {
+        setTransactions(data.transactions);
+        setTotalFees(data.totalFees);
+        setUnclaimedFees(data.unclaimedFees);
+      }
+    } catch (error) {
+      console.error('Failed to fetch rewards:', error);
+      setTransactions([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!connected) {
+    return (
+      <div className="max-w-7xl mx-auto px-6 lg:px-8 py-12">
+        <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-8 text-center">
+          <h2 className="text-2xl mb-4">Creator Rewards</h2>
+          <p className="text-white/60">Connect your wallet to view fee rewards from your ETFs</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-6 lg:px-8 py-12">
       <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-8 transition-all duration-300 hover:border-white/20">
-        <h2 className="text-2xl mb-6">Transactions</h2>
+        <h2 className="text-2xl mb-2">Creator Rewards</h2>
+        <p className="text-white/60 text-sm mb-6">Fees earned from users buying your ETFs (0.5% per purchase)</p>
 
-        <Table>
-          <TableHeader>
-            <TableRow className="border-white/10 hover:bg-transparent">
-              <TableHead className="text-white">Wallet</TableHead>
-              <TableHead className="text-white">Transaction</TableHead>
-              <TableHead className="text-white text-right">Amount</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {transactions.map((tx, index) => (
-              <TableRow key={index} className="border-white/10 hover:bg-white/5">
-                <TableCell className="text-white font-mono">
-                  {truncateWallet(tx.wallet)}
-                </TableCell>
-                <TableCell>
-                  <a
-                    href={getExplorerUrl(tx.signature, network)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-emerald-400 hover:text-emerald-300 hover:underline font-mono"
-                  >
-                    {truncateSignature(tx.signature)}
-                  </a>
-                </TableCell>
-                <TableCell className="text-right text-emerald-400 font-medium">
-                  {tx.amount.toFixed(4)} SOL
-                </TableCell>
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          <div className="rounded-lg border border-white/10 p-4">
+            <p className="text-xs text-white/60 mb-1">Total Earned</p>
+            <p className="text-xl text-emerald-400 font-medium">{totalFees.toFixed(4)} SOL</p>
+          </div>
+          <div className="rounded-lg border border-white/10 p-4">
+            <p className="text-xs text-white/60 mb-1">Unclaimed</p>
+            <p className="text-xl text-yellow-400 font-medium">{unclaimedFees.toFixed(4)} SOL</p>
+          </div>
+        </div>
+
+        {loading ? (
+          <p className="text-white/40 text-center py-8">Loading transactions...</p>
+        ) : transactions.length === 0 ? (
+          <p className="text-white/40 text-center py-8">No fee transactions yet. Create an ETF and earn 0.5% on every purchase!</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="border-white/10 hover:bg-transparent">
+                <TableHead className="text-white">Buyer</TableHead>
+                <TableHead className="text-white">ETF</TableHead>
+                <TableHead className="text-white">Transaction</TableHead>
+                <TableHead className="text-white text-right">Fee Earned</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {transactions.map((tx, index) => (
+                <TableRow key={index} className="border-white/10 hover:bg-white/5">
+                  <TableCell className="text-white font-mono">
+                    {truncateWallet(tx.wallet)}
+                  </TableCell>
+                  <TableCell className="text-white/80">
+                    {tx.etfName || '-'}
+                  </TableCell>
+                  <TableCell>
+                    {tx.signature ? (
+                      <a
+                        href={getExplorerUrl(tx.signature, network)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-emerald-400 hover:text-emerald-300 hover:underline font-mono"
+                      >
+                        {truncateSignature(tx.signature)}
+                      </a>
+                    ) : (
+                      <span className="text-white/40">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right text-emerald-400 font-medium">
+                    {tx.amount.toFixed(4)} SOL
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </div>
     </div>
   );
