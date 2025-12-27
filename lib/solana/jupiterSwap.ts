@@ -107,6 +107,26 @@ export interface JupiterQuoteResponse {
   timeTaken?: number;
 }
 
+// Jupiter Ultra API response (combines quote + transaction in one call)
+export interface JupiterUltraOrderResponse {
+  inputMint: string;
+  outputMint: string;
+  inAmount: string;
+  outAmount: string;
+  priceImpact: number;
+  priceImpactPct: string;
+  otherAmountThreshold: string;
+  swapMode: string;
+  slippageBps: number;
+  feeBps: number;
+  transaction: string | null; // base64 unsigned transaction
+  requestId: string;
+  router: string;
+  gasless: boolean;
+  errorCode?: number;
+  errorMessage?: string;
+}
+
 /**
  * Check if a token exists on the given network
  */
@@ -124,7 +144,64 @@ export async function tokenExistsOnChain(
 }
 
 /**
- * Get Jupiter quote for a swap
+ * Get Jupiter Ultra order (quote + transaction in one call)
+ * This is the preferred API - returns unsigned transaction directly
+ */
+export async function getJupiterUltraOrder(
+  inputMint: string,
+  outputMint: string,
+  amount: number, // in lamports
+  takerWallet: string,
+  apiKey?: string
+): Promise<JupiterUltraOrderResponse | null> {
+  try {
+    const baseUrl = 'https://api.jup.ag/ultra/v1';
+
+    const params = new URLSearchParams({
+      inputMint,
+      outputMint,
+      amount: amount.toString(),
+      taker: takerWallet,
+    });
+
+    const headers: Record<string, string> = {};
+    if (apiKey) {
+      headers['x-api-key'] = apiKey;
+    }
+
+    console.log(`[JupiterUltra] Fetching order from ${baseUrl}/order`);
+    console.log(`[JupiterUltra] ${inputMint.substring(0, 8)}... → ${outputMint.substring(0, 8)}... (${amount} lamports)`);
+
+    const response = await fetch(`${baseUrl}/order?${params}`, { headers });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[JupiterUltra] Order API error:', response.status, errorText);
+      return null;
+    }
+
+    const order = await response.json() as JupiterUltraOrderResponse;
+
+    if (order.errorCode) {
+      console.error('[JupiterUltra] Order error:', order.errorCode, order.errorMessage);
+      return null;
+    }
+
+    if (!order.transaction) {
+      console.error('[JupiterUltra] No transaction returned');
+      return null;
+    }
+
+    console.log(`[JupiterUltra] ✅ Order received: ${order.outAmount} tokens via ${order.router}`);
+    return order;
+  } catch (error) {
+    console.error('[JupiterUltra] Error fetching order:', error);
+    return null;
+  }
+}
+
+/**
+ * Get Jupiter quote for a swap (legacy v6 API - fallback)
  */
 export async function getJupiterQuote(
   inputMint: string,
@@ -758,8 +835,9 @@ export async function buildUnsignedEtfPurchase(
   }
   console.log(`[JupiterSwap] 🔄 SOL for swaps: ${solAfterFees}`);
 
-  // Build swap transactions
+  // Build swap transactions using Jupiter Ultra API (preferred)
   const swapTransactions: UnsignedSwapTransaction[] = [];
+  const jupiterApiKey = process.env.JUPITER_API_KEY; // Optional API key for higher rate limits
 
   for (let i = 0; i < tokenMints.length; i++) {
     const tokenMint = tokenMints[i];
@@ -768,61 +846,88 @@ export async function buildUnsignedEtfPurchase(
     const solForToken = solAfterFees * (percentage / 100);
     const lamports = Math.floor(solForToken * LAMPORTS_PER_SOL);
 
-    // On devnet, swap to USDC instead
+    // On devnet, swap to USDC instead (mainnet tokens don't exist on devnet)
     const finalOutputMint = isDevnet ? DEVNET_USDC : tokenMint;
 
-    console.log(`[JupiterSwap] Getting quote ${i + 1}/${tokenMints.length}: ${solForToken.toFixed(4)} SOL → ${symbol}`);
+    console.log(`[JupiterSwap] Getting swap ${i + 1}/${tokenMints.length}: ${solForToken.toFixed(4)} SOL → ${symbol}`);
 
     try {
-      const quote = await getJupiterQuote(
+      // Try Jupiter Ultra API first (single call for quote + transaction)
+      const ultraOrder = await getJupiterUltraOrder(
         SOL_MINT,
         finalOutputMint.toBase58(),
         lamports,
-        isDevnet ? 100 : 50, // Higher slippage on devnet
-        isDevnet
+        userWallet.toBase58(),
+        jupiterApiKey
       );
 
-      if (quote) {
-        // Jupiter quote succeeded - build real swap transaction
-        const unsignedTx = await buildUnsignedSwapTransaction(userWallet, quote, isDevnet);
-
+      if (ultraOrder && ultraOrder.transaction) {
+        // Ultra API succeeded - transaction is already included
         swapTransactions.push({
-          transaction: unsignedTx,
+          transaction: ultraOrder.transaction,
           inputMint: SOL_MINT,
           outputMint: finalOutputMint.toBase58(),
           inputAmount: solForToken,
-          expectedOutputAmount: parseInt(quote.outAmount),
-          priceImpactPct: quote.priceImpactPct,
+          expectedOutputAmount: parseInt(ultraOrder.outAmount),
+          priceImpactPct: ultraOrder.priceImpactPct,
           tokenSymbol: symbol,
           tokenWeight: percentage,
         });
 
-        console.log(`[JupiterSwap] ✅ Quote ${i + 1}: ${quote.outAmount} tokens expected`);
-      } else if (isDevnet) {
-        // No quote on devnet - use fallback transaction
-        console.log(`[JupiterSwap] ⚠️ No Jupiter quote for ${symbol} on devnet, using fallback...`);
-        const fallbackTx = await buildFallbackSwapTransaction(connection, userWallet, solForToken);
-
-        swapTransactions.push({
-          transaction: fallbackTx,
-          inputMint: SOL_MINT,
-          outputMint: finalOutputMint.toBase58(),
-          inputAmount: solForToken,
-          expectedOutputAmount: Math.floor(solForToken * 1000000), // Mock: 1 SOL = 1M tokens
-          priceImpactPct: '0',
-          tokenSymbol: `${symbol} (devnet mock)`,
-          tokenWeight: percentage,
-        });
-
-        console.log(`[JupiterSwap] ✅ Fallback ${i + 1}: ${solForToken.toFixed(4)} SOL (devnet simulation)`);
+        console.log(`[JupiterSwap] ✅ Ultra ${i + 1}: ${ultraOrder.outAmount} tokens via ${ultraOrder.router}`);
       } else {
-        // Mainnet with no quote - skip this token
-        console.log(`[JupiterSwap] ⚠️ No quote for ${symbol} on mainnet, skipping...`);
+        // Fall back to v6 API (quote + swap separate calls)
+        console.log(`[JupiterSwap] Ultra failed, trying v6 API for ${symbol}...`);
+
+        const quote = await getJupiterQuote(
+          SOL_MINT,
+          finalOutputMint.toBase58(),
+          lamports,
+          isDevnet ? 100 : 50,
+          isDevnet
+        );
+
+        if (quote) {
+          const unsignedTx = await buildUnsignedSwapTransaction(userWallet, quote, isDevnet);
+
+          swapTransactions.push({
+            transaction: unsignedTx,
+            inputMint: SOL_MINT,
+            outputMint: finalOutputMint.toBase58(),
+            inputAmount: solForToken,
+            expectedOutputAmount: parseInt(quote.outAmount),
+            priceImpactPct: quote.priceImpactPct,
+            tokenSymbol: symbol,
+            tokenWeight: percentage,
+          });
+
+          console.log(`[JupiterSwap] ✅ v6 Quote ${i + 1}: ${quote.outAmount} tokens expected`);
+        } else if (isDevnet) {
+          // No quote on devnet - use fallback transaction
+          console.log(`[JupiterSwap] ⚠️ No Jupiter quote for ${symbol} on devnet, using fallback...`);
+          const fallbackTx = await buildFallbackSwapTransaction(connection, userWallet, solForToken);
+
+          swapTransactions.push({
+            transaction: fallbackTx,
+            inputMint: SOL_MINT,
+            outputMint: finalOutputMint.toBase58(),
+            inputAmount: solForToken,
+            expectedOutputAmount: Math.floor(solForToken * 1000000), // Mock: 1 SOL = 1M tokens
+            priceImpactPct: '0',
+            tokenSymbol: `${symbol} (devnet mock)`,
+            tokenWeight: percentage,
+          });
+
+          console.log(`[JupiterSwap] ✅ Fallback ${i + 1}: ${solForToken.toFixed(4)} SOL (devnet simulation)`);
+        } else {
+          // Mainnet with no quote - skip this token
+          console.log(`[JupiterSwap] ⚠️ No quote for ${symbol} on mainnet, skipping...`);
+        }
       }
     } catch (error: any) {
-      console.error(`[JupiterSwap] ❌ Failed to get quote for ${symbol}:`, error.message);
+      console.error(`[JupiterSwap] ❌ Failed to get swap for ${symbol}:`, error.message);
 
-      // On devnet, still create a fallback transaction even if quote fails
+      // On devnet, still create a fallback transaction even if swap fails
       if (isDevnet) {
         console.log(`[JupiterSwap] Using fallback for ${symbol} after error...`);
         try {
