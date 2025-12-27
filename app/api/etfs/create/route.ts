@@ -4,12 +4,12 @@ import { generateTokenHash } from '@/lib/utils/tokenHash';
 import { TokenInfo } from '@/types';
 import { decryptPrivateKey, getKeypairFromPrivateKey } from '@/lib/solana/wallet';
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { initializeEtf, getEtfPda, getConnection, PROGRAM_ID } from '@/lib/solana/program';
+import { initializeEtf, getEtfPda, getAllEtfPdas, getConnection, PROGRAM_ID } from '@/lib/solana/program';
 
 // Maximum tokens per ETF (smart contract space limitation)
 const MAX_TOKENS_PER_ETF = 10;
-// Maximum ETFs per user
-const MAX_ETFS_PER_USER = 10;
+// Maximum ETFs per user (matches smart contract MAX_ETFS_PER_WALLET)
+const MAX_ETFS_PER_USER = 5;
 
 export async function POST(request: NextRequest) {
   try {
@@ -131,28 +131,40 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Check if user has reached the maximum number of ETFs (for this network)
+    // Find the next available ETF index (0-4) by checking on-chain PDAs
+    const allPdas = getAllEtfPdas(keypair.publicKey);
+    let nextAvailableIndex = -1;
+
+    console.log('[ETF Create] Checking for available ETF slot...');
+    for (const { pda, index } of allPdas) {
+      const existingAccount = await connection.getAccountInfo(pda);
+      if (!existingAccount) {
+        nextAvailableIndex = index;
+        console.log(`[ETF Create] Found available slot at index ${index}`);
+        break;
+      } else {
+        console.log(`[ETF Create] Slot ${index} is occupied (PDA: ${pda.toBase58().substring(0, 8)}...)`);
+      }
+    }
+
+    if (nextAvailableIndex === -1) {
+      return NextResponse.json({
+        success: false,
+        error: `You have reached the maximum of ${MAX_ETFS_PER_USER} ETFs. Close an existing ETF to create a new one.`
+      }, { status: 400 });
+    }
+
+    // Get the PDA for the selected index
+    const [etfPda] = getEtfPda(keypair.publicKey, nextAvailableIndex);
+    console.log(`[ETF Create] Will create ETF at index ${nextAvailableIndex}, PDA: ${etfPda.toBase58()}`);
+
+    // Also verify against database (in case of DB/chain desync)
     const existingEtfCheck = await pool.query(
       'SELECT COUNT(*) as count FROM etf_listings WHERE creator = $1 AND network = $2',
       [userId, network]
     );
-
-    const etfCount = parseInt(existingEtfCheck.rows[0].count || '0');
-    if (etfCount >= MAX_ETFS_PER_USER) {
-      return NextResponse.json({
-        success: false,
-        error: `You have reached the maximum of ${MAX_ETFS_PER_USER} ETFs on ${network}. Delete one to create a new one.`
-      }, { status: 400 });
-    }
-
-    // Check if ETF PDA already exists on-chain for this wallet
-    const [etfPda] = getEtfPda(keypair.publicKey);
-    const existingAccount = await connection.getAccountInfo(etfPda);
-    if (existingAccount) {
-      console.log('[ETF Create] Warning: PDA exists on-chain but not in database. This may indicate a previous deletion. Proceeding with creation...');
-      // Note: On mainnet, you'd want to close the existing PDA first or use a different approach
-      // For now on devnet, we'll allow it to fail at the contract level if truly duplicate
-    }
+    const dbEtfCount = parseInt(existingEtfCheck.rows[0].count || '0');
+    console.log(`[ETF Create] Database shows ${dbEtfCount} ETFs for this user on ${network}`);
 
     // Initialize ETF on-chain
     console.log(`[ETF Create] Initializing on ${network}...`);
@@ -162,9 +174,10 @@ export async function POST(request: NextRequest) {
 
     let signature: string;
     try {
-      signature = await initializeEtf(connection, keypair, tokenPubkeys);
+      signature = await initializeEtf(connection, keypair, tokenPubkeys, nextAvailableIndex);
       console.log('[ETF Create] ✅ Success! TX:', signature);
-      } catch (err: any) {
+      console.log(`[ETF Create] ETF index: ${nextAvailableIndex}, PDA: ${etfPda.toBase58()}`);
+    } catch (err: any) {
       console.error('[ETF Create] ❌ Failed:', err);
 
       if (err.message?.includes('already in use')) {
@@ -191,12 +204,12 @@ export async function POST(request: NextRequest) {
     }
     console.log(`[ETF Create] Final initialMarketCap: $${initialMarketCap.toLocaleString()}`);
 
-    // Save to database
+    // Save to database (include etf_index for multi-ETF support)
     const result = await pool.query(
-      `INSERT INTO etf_listings (name, creator, contract_address, market_cap_at_list, tokens, token_hash, network)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, name, creator, contract_address, market_cap_at_list, tokens, network, created_at`,
-      [name, userId, etfPda.toString(), initialMarketCap, JSON.stringify(tokens), tokenHash, network]
+      `INSERT INTO etf_listings (name, creator, contract_address, market_cap_at_list, tokens, token_hash, network, etf_index)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, name, creator, contract_address, market_cap_at_list, tokens, network, etf_index, created_at`,
+      [name, userId, etfPda.toString(), initialMarketCap, JSON.stringify(tokens), tokenHash, network, nextAvailableIndex]
     );
 
     // Deduct fee from protocol balance and record transaction
@@ -213,6 +226,7 @@ export async function POST(request: NextRequest) {
       contract_address: result.rows[0].contract_address,
       market_cap_at_list: parseFloat(result.rows[0].market_cap_at_list),
       tokens: typeof result.rows[0].tokens === 'string' ? JSON.parse(result.rows[0].tokens) : result.rows[0].tokens,
+      etf_index: result.rows[0].etf_index,
       created_at: result.rows[0].created_at,
     };
 

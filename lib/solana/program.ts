@@ -39,33 +39,55 @@ export function getConnection(network: 'devnet' | 'mainnet' = 'devnet'): Connect
   return new Connection(rpcUrl, 'confirmed');
 }
 
-export function getEtfPda(listerPubkey: PublicKey): [PublicKey, number] {
+/**
+ * Get ETF PDA for a specific index
+ * Each wallet can have up to 5 ETFs (index 0-4)
+ */
+export function getEtfPda(listerPubkey: PublicKey, etfIndex: number = 0): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from('etf'), listerPubkey.toBuffer()],
+    [Buffer.from('etf'), listerPubkey.toBuffer(), Buffer.from([etfIndex])],
     PROGRAM_ID
   );
 }
 
 /**
+ * Get all ETF PDAs for a wallet (up to 5)
+ */
+export function getAllEtfPdas(listerPubkey: PublicKey): Array<{ pda: PublicKey; bump: number; index: number }> {
+  const pdas: Array<{ pda: PublicKey; bump: number; index: number }> = [];
+  for (let i = 0; i < 5; i++) {
+    const [pda, bump] = getEtfPda(listerPubkey, i);
+    pdas.push({ pda, bump, index: i });
+  }
+  return pdas;
+}
+
+/**
  * Initialize ETF - accounts: [etf, lister, system_program]
+ * etfIndex: 0-4 (each wallet can have up to 5 ETFs)
  */
 export async function initializeEtf(
   connection: Connection,
   listerKeypair: Keypair,
-  tokenAddresses: PublicKey[]
+  tokenAddresses: PublicKey[],
+  etfIndex: number = 0
 ): Promise<string> {
-  const [etfPda] = getEtfPda(listerKeypair.publicKey);
-  
-  // Data: discriminator + vec<pubkey>
+  const [etfPda] = getEtfPda(listerKeypair.publicKey, etfIndex);
+
+  // Data: discriminator + etf_index (u8) + vec<pubkey>
+  const indexBuf = Buffer.alloc(1);
+  indexBuf.writeUInt8(etfIndex, 0);
+
   const vecLen = Buffer.alloc(4);
   vecLen.writeUInt32LE(tokenAddresses.length, 0);
-  
+
   const data = Buffer.concat([
     DISC.initializeEtf,
+    indexBuf,
     vecLen,
     ...tokenAddresses.map(pk => pk.toBuffer())
   ]);
-  
+
   const ix = new TransactionInstruction({
     keys: [
       { pubkey: etfPda, isSigner: false, isWritable: true },
@@ -75,7 +97,7 @@ export async function initializeEtf(
     programId: PROGRAM_ID,
     data,
   });
-  
+
   const tx = new Transaction().add(ix);
   return sendAndConfirmTransaction(connection, tx, [listerKeypair], { commitment: 'confirmed' });
 }
@@ -297,20 +319,26 @@ export async function sellEtf(
 /**
  * Build unsigned ETF initialization transaction
  * NON-CUSTODIAL: User signs this with their wallet
+ * etfIndex: 0-4 (each wallet can have up to 5 ETFs)
  */
 export async function buildUnsignedInitializeEtf(
   connection: Connection,
   listerPubkey: PublicKey,
-  tokenAddresses: PublicKey[]
-): Promise<{ transaction: string; etfPda: string }> {
-  const [etfPda] = getEtfPda(listerPubkey);
+  tokenAddresses: PublicKey[],
+  etfIndex: number = 0
+): Promise<{ transaction: string; etfPda: string; etfIndex: number }> {
+  const [etfPda] = getEtfPda(listerPubkey, etfIndex);
 
-  // Data: discriminator + vec<pubkey>
+  // Data: discriminator + etf_index (u8) + vec<pubkey>
+  const indexBuf = Buffer.alloc(1);
+  indexBuf.writeUInt8(etfIndex, 0);
+
   const vecLen = Buffer.alloc(4);
   vecLen.writeUInt32LE(tokenAddresses.length, 0);
 
   const data = Buffer.concat([
     DISC.initializeEtf,
+    indexBuf,
     vecLen,
     ...tokenAddresses.map(pk => pk.toBuffer())
   ]);
@@ -339,6 +367,7 @@ export async function buildUnsignedInitializeEtf(
   return {
     transaction: serialized.toString('base64'),
     etfPda: etfPda.toBase58(),
+    etfIndex,
   };
 }
 

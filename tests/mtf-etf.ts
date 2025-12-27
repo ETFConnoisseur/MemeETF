@@ -17,16 +17,16 @@ describe("mtf-etf Unit Tests", () => {
     lister = Keypair.generate();
     investor = Keypair.generate();
 
-    // Derive ETF PDA
+    // Derive ETF PDA with index 0 (default)
     [etfPda, etfBump] = PublicKey.findProgramAddressSync(
-      [Buffer.from("etf"), lister.publicKey.toBuffer()],
+      [Buffer.from("etf"), lister.publicKey.toBuffer(), Buffer.from([0])],
       PROGRAM_ID
     );
 
     console.log("Test Setup Complete:");
     console.log("  Lister:", lister.publicKey.toBase58());
     console.log("  Investor:", investor.publicKey.toBase58());
-    console.log("  ETF PDA:", etfPda.toBase58());
+    console.log("  ETF PDA (index 0):", etfPda.toBase58());
     console.log("  Dev Wallet:", DEV_WALLET.toBase58());
   });
 
@@ -35,9 +35,9 @@ describe("mtf-etf Unit Tests", () => {
   // ============================================================================
 
   describe("PDA Derivation", () => {
-    it("should derive ETF PDA correctly", () => {
+    it("should derive ETF PDA correctly with index", () => {
       const [derivedPda, bump] = PublicKey.findProgramAddressSync(
-        [Buffer.from("etf"), lister.publicKey.toBuffer()],
+        [Buffer.from("etf"), lister.publicKey.toBuffer(), Buffer.from([0])],
         PROGRAM_ID
       );
 
@@ -48,24 +48,50 @@ describe("mtf-etf Unit Tests", () => {
     it("should derive different PDAs for different listers", () => {
       const otherLister = Keypair.generate();
       const [otherPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("etf"), otherLister.publicKey.toBuffer()],
+        [Buffer.from("etf"), otherLister.publicKey.toBuffer(), Buffer.from([0])],
         PROGRAM_ID
       );
 
       expect(otherPda.toBase58()).to.not.equal(etfPda.toBase58());
     });
 
-    it("should produce consistent PDAs for the same lister", () => {
+    it("should produce consistent PDAs for the same lister and index", () => {
       const [pda1] = PublicKey.findProgramAddressSync(
-        [Buffer.from("etf"), lister.publicKey.toBuffer()],
+        [Buffer.from("etf"), lister.publicKey.toBuffer(), Buffer.from([0])],
         PROGRAM_ID
       );
       const [pda2] = PublicKey.findProgramAddressSync(
-        [Buffer.from("etf"), lister.publicKey.toBuffer()],
+        [Buffer.from("etf"), lister.publicKey.toBuffer(), Buffer.from([0])],
         PROGRAM_ID
       );
 
       expect(pda1.toBase58()).to.equal(pda2.toBase58());
+    });
+
+    it("should derive different PDAs for same lister with different indices", () => {
+      const pdas: string[] = [];
+      for (let i = 0; i < 5; i++) {
+        const [pda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("etf"), lister.publicKey.toBuffer(), Buffer.from([i])],
+          PROGRAM_ID
+        );
+        pdas.push(pda.toBase58());
+      }
+
+      // All 5 PDAs should be unique
+      const uniquePdas = new Set(pdas);
+      expect(uniquePdas.size).to.equal(5);
+    });
+
+    it("should allow up to 5 ETFs per wallet (indices 0-4)", () => {
+      const MAX_ETFS = 5;
+      for (let i = 0; i < MAX_ETFS; i++) {
+        const [pda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("etf"), lister.publicKey.toBuffer(), Buffer.from([i])],
+          PROGRAM_ID
+        );
+        expect(pda).to.be.instanceOf(PublicKey);
+      }
     });
   });
 
@@ -589,6 +615,7 @@ describe("mtf-etf Unit Tests", () => {
       InvalidTokenCount: 6005,
       InvalidDevWallet: 6006,
       InvalidListerAccount: 6007,
+      MaxEtfsReached: 6008,
     };
 
     it("should have sequential error codes starting at 6000", () => {
@@ -598,7 +625,11 @@ describe("mtf-etf Unit Tests", () => {
     });
 
     it("should have all expected error codes defined", () => {
-      expect(Object.keys(ErrorCodes)).to.have.lengthOf(8);
+      expect(Object.keys(ErrorCodes)).to.have.lengthOf(9);
+    });
+
+    it("should have MaxEtfsReached error code", () => {
+      expect(ErrorCodes.MaxEtfsReached).to.equal(6008);
     });
   });
 
@@ -616,9 +647,10 @@ describe("mtf-etf Unit Tests", () => {
     });
 
     it("should derive same PDA as stored in database", () => {
-      // When ETF is created, PDA is derived and stored
+      // When ETF is created, PDA is derived with index and stored
+      const etfIndex = 0;
       const [derivedPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("etf"), lister.publicKey.toBuffer()],
+        [Buffer.from("etf"), lister.publicKey.toBuffer(), Buffer.from([etfIndex])],
         PROGRAM_ID
       );
 
@@ -745,12 +777,13 @@ describe("mtf-etf Unit Tests", () => {
   // ============================================================================
 
   describe("Non-Custodial Flow", () => {
-    it("should derive PDA from creator wallet (not protocol wallet)", () => {
-      // In non-custodial flow, ETF is created with user's wallet
+    it("should derive PDA from creator wallet with index", () => {
+      // In non-custodial flow, ETF is created with user's wallet + index
       const creatorWallet = lister.publicKey;
+      const etfIndex = 0;
 
       const [pda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("etf"), creatorWallet.toBuffer()],
+        [Buffer.from("etf"), creatorWallet.toBuffer(), Buffer.from([etfIndex])],
         PROGRAM_ID
       );
 

@@ -6,14 +6,22 @@ declare_id!("CwwrCDfrsuA2C4YPiobU82ZA9wSWrecyLbbvP35QXmyo");
 // Hardcoded dev wallet - receives 0.5% fee on all buys/sells
 pub const DEV_WALLET: Pubkey = solana_program::pubkey!("GdtZWBCTUrFneA7FdFaxyudhCLTKgBM4a9NVR3k4rPJx");
 
+// Maximum ETFs per wallet (0-4 = 5 total)
+pub const MAX_ETFS_PER_WALLET: u8 = 5;
+
 #[program]
 pub mod mtf_etf {
     use super::*;
 
     pub fn initialize_etf(
         ctx: Context<InitializeETF>,
+        etf_index: u8,
         token_addresses: Vec<Pubkey>,
     ) -> Result<()> {
+        require!(
+            etf_index < MAX_ETFS_PER_WALLET,
+            ErrorCode::MaxEtfsReached
+        );
         require!(
             token_addresses.len() > 0 && token_addresses.len() <= 10,
             ErrorCode::InvalidTokenCount
@@ -21,6 +29,7 @@ pub mod mtf_etf {
 
         let etf = &mut ctx.accounts.etf;
         etf.lister = ctx.accounts.lister.key();
+        etf.etf_index = etf_index;
         etf.token_addresses = token_addresses;
         etf.total_supply = 0;
         etf.accumulated_fees = 0;
@@ -260,12 +269,13 @@ pub mod mtf_etf {
 }
 
 #[derive(Accounts)]
+#[instruction(etf_index: u8)]
 pub struct InitializeETF<'info> {
     #[account(
         init,
         payer = lister,
-        space = 8 + 32 + (4 + 32 * 10) + 8 + 8 + 1,
-        seeds = [b"etf", lister.key().as_ref()],
+        space = 8 + 32 + 1 + (4 + 32 * 10) + 8 + 8 + 1, // Added 1 byte for etf_index
+        seeds = [b"etf", lister.key().as_ref(), &[etf_index]],
         bump
     )]
     pub etf: Account<'info, ETF>,
@@ -320,6 +330,7 @@ pub struct CloseETF<'info> {
 #[account]
 pub struct ETF {
     pub lister: Pubkey,
+    pub etf_index: u8,              // Index 0-4 for up to 5 ETFs per wallet
     pub token_addresses: Vec<Pubkey>,
     pub total_supply: u64,
     pub accumulated_fees: u64,  // Kept for backwards compatibility, now always 0
@@ -384,6 +395,8 @@ pub enum ErrorCode {
     InvalidDevWallet,
     #[msg("Invalid lister account - must match ETF creator")]
     InvalidListerAccount,
+    #[msg("Maximum 5 ETFs per wallet reached")]
+    MaxEtfsReached,
 }
 
 // ============================================================================
