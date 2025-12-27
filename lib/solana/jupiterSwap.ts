@@ -63,7 +63,7 @@ export interface ProgramTransaction {
 // Complete unsigned transaction bundle for ETF purchase
 export interface UnsignedEtfPurchase {
   programTransaction?: ProgramTransaction; // Calls buy_etf on the program (shows on Solscan)
-  feeTransaction: FeeTransaction;
+  feeTransaction?: FeeTransaction; // Only present if programTransaction is not (old ETFs)
   swapTransactions: UnsignedSwapTransaction[];
   totalSolAmount: number;
   solAfterFees: number;
@@ -695,16 +695,28 @@ export async function buildUnsignedEtfPurchase(
     console.log(`[JupiterSwap] Program transaction skipped (ETF not initialized on-chain)`);
   }
 
-  // Build fee transaction
-  const feeTransaction = await buildFeeTransaction(
-    connection,
-    userWallet,
-    creatorWallet,
-    totalSolAmount
-  );
+  // Build fee transaction ONLY if program transaction is not available
+  // The smart contract already handles fees (0.5% creator + 0.5% dev)
+  // So we only need the separate fee tx for old ETFs without on-chain PDA
+  let feeTransaction: FeeTransaction | undefined = undefined;
+  let solAfterFees = totalSolAmount;
 
-  const solAfterFees = totalSolAmount - feeTransaction.totalFee;
-  console.log(`[JupiterSwap] 💸 Fees: ${feeTransaction.totalFee} SOL`);
+  if (!programTransaction) {
+    // No program transaction = old ETF, need separate fee tx
+    feeTransaction = await buildFeeTransaction(
+      connection,
+      userWallet,
+      creatorWallet,
+      totalSolAmount
+    );
+    solAfterFees = totalSolAmount - feeTransaction.totalFee;
+    console.log(`[JupiterSwap] 💸 Fees via separate tx: ${feeTransaction.totalFee} SOL`);
+  } else {
+    // Program transaction handles fees, calculate SOL after 1% total fee
+    const totalFeePercent = 0.01; // 0.5% creator + 0.5% dev
+    solAfterFees = totalSolAmount * (1 - totalFeePercent);
+    console.log(`[JupiterSwap] 💸 Fees via program tx: ${totalSolAmount * totalFeePercent} SOL`);
+  }
   console.log(`[JupiterSwap] 🔄 SOL for swaps: ${solAfterFees}`);
 
   // Build swap transactions

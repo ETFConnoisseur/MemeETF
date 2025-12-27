@@ -46,7 +46,7 @@ interface ProgramTransaction {
 
 interface UnsignedEtfPurchase {
   programTransaction?: ProgramTransaction; // Calls buy_etf on the program (shows on Solscan)
-  feeTransaction: FeeTransaction;
+  feeTransaction?: FeeTransaction; // Only present if programTransaction is not (old ETFs)
   swapTransactions: UnsignedSwapTransaction[];
   totalSolAmount: number;
   solAfterFees: number;
@@ -197,26 +197,31 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
         }
       }
 
-      // Step 2: Sign and send fee transaction
-      setCurrentStep('Sign fee transaction in your wallet...');
-      setProgress(35);
+      // Step 2: Sign and send fee transaction (only if present - old ETFs without on-chain program)
+      // If programTransaction exists, fees are already handled by the smart contract
+      if (purchase.feeTransaction) {
+        setCurrentStep('Sign fee transaction in your wallet...');
+        setProgress(35);
 
-      const feeTx = Transaction.from(Buffer.from(purchase.feeTransaction.transaction, 'base64'));
-      feeTx.feePayer = publicKey;
+        const feeTx = Transaction.from(Buffer.from(purchase.feeTransaction.transaction, 'base64'));
+        feeTx.feePayer = publicKey;
 
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-      feeTx.recentBlockhash = blockhash;
-      feeTx.lastValidBlockHeight = lastValidBlockHeight;
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+        feeTx.recentBlockhash = blockhash;
+        feeTx.lastValidBlockHeight = lastValidBlockHeight;
 
-      const signedFeeTx = await signTransaction(feeTx);
-      const feeSignature = await connection.sendRawTransaction(signedFeeTx.serialize());
-      await connection.confirmTransaction({
-        signature: feeSignature,
-        blockhash,
-        lastValidBlockHeight,
-      }, 'confirmed');
+        const signedFeeTx = await signTransaction(feeTx);
+        const feeSignature = await connection.sendRawTransaction(signedFeeTx.serialize());
+        await connection.confirmTransaction({
+          signature: feeSignature,
+          blockhash,
+          lastValidBlockHeight,
+        }, 'confirmed');
 
-      signatures.push(feeSignature);
+        signatures.push(feeSignature);
+      } else {
+        console.log('[ETF Purchase] Skipping fee tx - fees handled by program transaction');
+      }
       setProgress(45);
 
       // Step 3: Sign and send swap transactions
