@@ -633,6 +633,45 @@ export async function buildUnsignedSwapTransaction(
 }
 
 /**
+ * Build a simple SOL transfer transaction as fallback when Jupiter fails
+ * This is used on devnet when Jupiter can't find routes
+ * The SOL is sent to the user's own wallet (essentially a no-op that simulates the swap)
+ */
+async function buildFallbackSwapTransaction(
+  connection: Connection,
+  userWallet: PublicKey,
+  solAmount: number
+): Promise<string> {
+  const lamports = Math.floor(solAmount * LAMPORTS_PER_SOL);
+
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+
+  // Create a minimal transaction that just moves SOL to the user's own wallet
+  // This simulates the swap on devnet when Jupiter isn't available
+  const transaction = new Transaction({
+    feePayer: userWallet,
+    blockhash,
+    lastValidBlockHeight,
+  });
+
+  // Self-transfer (keeps SOL in user's wallet, just pays tx fee)
+  transaction.add(
+    SystemProgram.transfer({
+      fromPubkey: userWallet,
+      toPubkey: userWallet,
+      lamports: lamports > 5000 ? lamports - 5000 : 1, // Leave some for tx fee
+    })
+  );
+
+  const serialized = transaction.serialize({
+    requireAllSignatures: false,
+    verifySignatures: false,
+  });
+
+  return serialized.toString('base64');
+}
+
+/**
  * Build unsigned transactions for ETF purchase
  * Returns all transactions for user to sign in their wallet
  * Includes program transaction to register the purchase on-chain (shows on Solscan)
@@ -743,27 +782,68 @@ export async function buildUnsignedEtfPurchase(
         isDevnet
       );
 
-      if (!quote) {
-        console.log(`[JupiterSwap] ⚠️ No quote for ${symbol}, skipping...`);
-        continue;
+      if (quote) {
+        // Jupiter quote succeeded - build real swap transaction
+        const unsignedTx = await buildUnsignedSwapTransaction(userWallet, quote, isDevnet);
+
+        swapTransactions.push({
+          transaction: unsignedTx,
+          inputMint: SOL_MINT,
+          outputMint: finalOutputMint.toBase58(),
+          inputAmount: solForToken,
+          expectedOutputAmount: parseInt(quote.outAmount),
+          priceImpactPct: quote.priceImpactPct,
+          tokenSymbol: symbol,
+          tokenWeight: percentage,
+        });
+
+        console.log(`[JupiterSwap] ✅ Quote ${i + 1}: ${quote.outAmount} tokens expected`);
+      } else if (isDevnet) {
+        // No quote on devnet - use fallback transaction
+        console.log(`[JupiterSwap] ⚠️ No Jupiter quote for ${symbol} on devnet, using fallback...`);
+        const fallbackTx = await buildFallbackSwapTransaction(connection, userWallet, solForToken);
+
+        swapTransactions.push({
+          transaction: fallbackTx,
+          inputMint: SOL_MINT,
+          outputMint: finalOutputMint.toBase58(),
+          inputAmount: solForToken,
+          expectedOutputAmount: Math.floor(solForToken * 1000000), // Mock: 1 SOL = 1M tokens
+          priceImpactPct: '0',
+          tokenSymbol: `${symbol} (devnet mock)`,
+          tokenWeight: percentage,
+        });
+
+        console.log(`[JupiterSwap] ✅ Fallback ${i + 1}: ${solForToken.toFixed(4)} SOL (devnet simulation)`);
+      } else {
+        // Mainnet with no quote - skip this token
+        console.log(`[JupiterSwap] ⚠️ No quote for ${symbol} on mainnet, skipping...`);
       }
-
-      const unsignedTx = await buildUnsignedSwapTransaction(userWallet, quote, isDevnet);
-
-      swapTransactions.push({
-        transaction: unsignedTx,
-        inputMint: SOL_MINT,
-        outputMint: finalOutputMint.toBase58(),
-        inputAmount: solForToken,
-        expectedOutputAmount: parseInt(quote.outAmount),
-        priceImpactPct: quote.priceImpactPct,
-        tokenSymbol: symbol,
-        tokenWeight: percentage,
-      });
-
-      console.log(`[JupiterSwap] ✅ Quote ${i + 1}: ${quote.outAmount} tokens expected`);
     } catch (error: any) {
       console.error(`[JupiterSwap] ❌ Failed to get quote for ${symbol}:`, error.message);
+
+      // On devnet, still create a fallback transaction even if quote fails
+      if (isDevnet) {
+        console.log(`[JupiterSwap] Using fallback for ${symbol} after error...`);
+        try {
+          const fallbackTx = await buildFallbackSwapTransaction(connection, userWallet, solForToken);
+
+          swapTransactions.push({
+            transaction: fallbackTx,
+            inputMint: SOL_MINT,
+            outputMint: finalOutputMint.toBase58(),
+            inputAmount: solForToken,
+            expectedOutputAmount: Math.floor(solForToken * 1000000),
+            priceImpactPct: '0',
+            tokenSymbol: `${symbol} (devnet mock)`,
+            tokenWeight: percentage,
+          });
+
+          console.log(`[JupiterSwap] ✅ Fallback ${i + 1}: ${solForToken.toFixed(4)} SOL (devnet simulation)`);
+        } catch (fallbackError: any) {
+          console.error(`[JupiterSwap] Fallback also failed for ${symbol}:`, fallbackError.message);
+        }
+      }
     }
   }
 

@@ -233,15 +233,34 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
         setProgress(45 + ((i / totalSwaps) * 50));
 
         try {
-          const swapTx = VersionedTransaction.deserialize(
-            Buffer.from(swap.transaction, 'base64')
-          );
+          const txBuffer = Buffer.from(swap.transaction, 'base64');
 
-          // Sign the versioned transaction
-          const signedSwapTx = await signTransaction(swapTx as any);
-          const swapSignature = await connection.sendRawTransaction(
-            (signedSwapTx as VersionedTransaction).serialize()
-          );
+          // Try to determine if it's a VersionedTransaction or legacy Transaction
+          // VersionedTransaction starts with version byte (0x80 for v0)
+          // Legacy Transaction starts with signature count (usually 0x01 or 0x00)
+          let signedTx: Transaction | VersionedTransaction;
+          let serializedTx: Uint8Array;
+
+          try {
+            // First try as VersionedTransaction (Jupiter swaps)
+            const versionedTx = VersionedTransaction.deserialize(txBuffer);
+            signedTx = await signTransaction(versionedTx as any);
+            serializedTx = (signedTx as VersionedTransaction).serialize();
+          } catch {
+            // Fall back to legacy Transaction (devnet fallback)
+            console.log(`[ETF Purchase] Swap ${i + 1} is legacy transaction, handling...`);
+            const legacyTx = Transaction.from(txBuffer);
+            legacyTx.feePayer = publicKey;
+
+            const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+            legacyTx.recentBlockhash = blockhash;
+            legacyTx.lastValidBlockHeight = lastValidBlockHeight;
+
+            signedTx = await signTransaction(legacyTx);
+            serializedTx = (signedTx as Transaction).serialize();
+          }
+
+          const swapSignature = await connection.sendRawTransaction(serializedTx);
 
           const { blockhash: swapBlockhash, lastValidBlockHeight: swapHeight } =
             await connection.getLatestBlockhash('confirmed');
@@ -252,6 +271,7 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
           }, 'confirmed');
 
           signatures.push(swapSignature);
+          console.log(`[ETF Purchase] Swap ${i + 1}/${totalSwaps} confirmed:`, swapSignature);
         } catch (swapError: any) {
           console.error(`Swap ${i + 1} failed:`, swapError);
           // Continue with other swaps
