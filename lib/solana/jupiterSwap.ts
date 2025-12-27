@@ -1,6 +1,7 @@
 /**
  * Jupiter Swap Service for on-chain token swaps
  *
+ * NON-CUSTODIAL MODE: Returns unsigned transactions for user to sign
  * DEVNET MODE: All token swaps are converted to devnet USDC as a demo
  * MAINNET MODE: Real Jupiter swaps to actual meme tokens
  *
@@ -14,6 +15,8 @@ import {
   VersionedTransaction,
   Keypair,
   LAMPORTS_PER_SOL,
+  SystemProgram,
+  TransactionMessage,
 } from '@solana/web3.js';
 
 // Devnet USDC mint - used as placeholder for all tokens on devnet
@@ -25,6 +28,49 @@ const MAINNET_USDC = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
 const CREATOR_FEE_BPS = 50; // 0.5% = 50 basis points
 const DEV_FEE_BPS = 50;     // 0.5% = 50 basis points
 const TOTAL_FEE_BPS = CREATOR_FEE_BPS + DEV_FEE_BPS; // 1% total
+
+// Dev wallet for platform fees (matches contract DEV_WALLET)
+const DEV_WALLET = new PublicKey('F2Qgu6J59kfLAKZWMT258PwFYi1Q19WuaYPPTxLeYwjz');
+
+// Unsigned transaction for user to sign
+export interface UnsignedSwapTransaction {
+  transaction: string; // base64 serialized VersionedTransaction
+  inputMint: string;
+  outputMint: string;
+  inputAmount: number;
+  expectedOutputAmount: number;
+  priceImpactPct: string;
+  tokenSymbol: string;
+  tokenWeight: number;
+}
+
+// Fee transfer transaction
+export interface FeeTransaction {
+  transaction: string; // base64 serialized transaction
+  creatorFee: number;
+  devFee: number;
+  totalFee: number;
+}
+
+// Complete unsigned transaction bundle for ETF purchase
+export interface UnsignedEtfPurchase {
+  feeTransaction: FeeTransaction;
+  swapTransactions: UnsignedSwapTransaction[];
+  totalSolAmount: number;
+  solAfterFees: number;
+  userWallet: string;
+  creatorWallet: string;
+  network: 'devnet' | 'mainnet-beta';
+}
+
+// Complete unsigned transaction bundle for ETF sell
+export interface UnsignedEtfSell {
+  swapTransactions: UnsignedSwapTransaction[];
+  feeTransaction?: FeeTransaction; // Fees taken from proceeds
+  totalExpectedSol: number;
+  userWallet: string;
+  network: 'devnet' | 'mainnet-beta';
+}
 
 export interface SwapResult {
   signature: string;
@@ -482,4 +528,282 @@ export async function swapForEtfSell(
   console.log(`[JupiterSwap] 🎉 Sell complete: ${successfulSells}/${results.length} successful`);
 
   return results;
+}
+
+// ============================================================================
+// NON-CUSTODIAL FUNCTIONS - Returns unsigned transactions for user to sign
+// ============================================================================
+
+/**
+ * Build unsigned fee transfer transaction
+ * User signs this to pay fees to creator and dev wallet
+ */
+export async function buildFeeTransaction(
+  connection: Connection,
+  userWallet: PublicKey,
+  creatorWallet: PublicKey,
+  totalSolAmount: number
+): Promise<FeeTransaction> {
+  const creatorFee = Math.floor(totalSolAmount * LAMPORTS_PER_SOL * (CREATOR_FEE_BPS / 10000));
+  const devFee = Math.floor(totalSolAmount * LAMPORTS_PER_SOL * (DEV_FEE_BPS / 10000));
+
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+
+  const transaction = new Transaction({
+    feePayer: userWallet,
+    blockhash,
+    lastValidBlockHeight,
+  });
+
+  // Transfer to creator
+  transaction.add(
+    SystemProgram.transfer({
+      fromPubkey: userWallet,
+      toPubkey: creatorWallet,
+      lamports: creatorFee,
+    })
+  );
+
+  // Transfer to dev wallet
+  transaction.add(
+    SystemProgram.transfer({
+      fromPubkey: userWallet,
+      toPubkey: DEV_WALLET,
+      lamports: devFee,
+    })
+  );
+
+  const serialized = transaction.serialize({
+    requireAllSignatures: false,
+    verifySignatures: false,
+  });
+
+  return {
+    transaction: serialized.toString('base64'),
+    creatorFee: creatorFee / LAMPORTS_PER_SOL,
+    devFee: devFee / LAMPORTS_PER_SOL,
+    totalFee: (creatorFee + devFee) / LAMPORTS_PER_SOL,
+  };
+}
+
+/**
+ * Build an unsigned Jupiter swap transaction
+ * Returns the serialized transaction for user to sign
+ */
+export async function buildUnsignedSwapTransaction(
+  userWallet: PublicKey,
+  quote: JupiterQuoteResponse,
+  isDevnet: boolean = true
+): Promise<string> {
+  const baseUrl = 'https://api.jup.ag/v6';
+
+  console.log(`[JupiterSwap] Building unsigned swap for ${userWallet.toBase58().substring(0, 8)}...`);
+
+  const swapResponse = await fetch(`${baseUrl}/swap`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      quoteResponse: quote,
+      userPublicKey: userWallet.toBase58(),
+      wrapAndUnwrapSol: true,
+      dynamicComputeUnitLimit: true,
+      prioritizationFeeLamports: 'auto',
+    }),
+  });
+
+  if (!swapResponse.ok) {
+    const errorText = await swapResponse.text();
+    throw new Error(`Jupiter swap API error: ${swapResponse.status} - ${errorText}`);
+  }
+
+  const { swapTransaction } = await swapResponse.json();
+  return swapTransaction; // Already base64
+}
+
+/**
+ * Build unsigned transactions for ETF purchase
+ * Returns all transactions for user to sign in their wallet
+ */
+export async function buildUnsignedEtfPurchase(
+  connection: Connection,
+  userWallet: PublicKey,
+  creatorWallet: PublicKey,
+  tokenMints: PublicKey[],
+  tokenSymbols: string[],
+  percentages: number[],
+  totalSolAmount: number,
+  isDevnet: boolean = true
+): Promise<UnsignedEtfPurchase> {
+  const SOL_MINT = 'So11111111111111111111111111111111111111112';
+
+  console.log(`[JupiterSwap] ════════════════════════════════════════`);
+  console.log(`[JupiterSwap] 🔧 Building UNSIGNED ETF Purchase`);
+  console.log(`[JupiterSwap] 📍 Network: ${isDevnet ? 'DEVNET' : 'MAINNET'}`);
+  console.log(`[JupiterSwap] 👛 User: ${userWallet.toBase58().substring(0, 8)}...`);
+  console.log(`[JupiterSwap] 💰 Total SOL: ${totalSolAmount}`);
+  console.log(`[JupiterSwap] ════════════════════════════════════════`);
+
+  // Build fee transaction first
+  const feeTransaction = await buildFeeTransaction(
+    connection,
+    userWallet,
+    creatorWallet,
+    totalSolAmount
+  );
+
+  const solAfterFees = totalSolAmount - feeTransaction.totalFee;
+  console.log(`[JupiterSwap] 💸 Fees: ${feeTransaction.totalFee} SOL`);
+  console.log(`[JupiterSwap] 🔄 SOL for swaps: ${solAfterFees}`);
+
+  // Build swap transactions
+  const swapTransactions: UnsignedSwapTransaction[] = [];
+
+  for (let i = 0; i < tokenMints.length; i++) {
+    const tokenMint = tokenMints[i];
+    const symbol = tokenSymbols[i];
+    const percentage = percentages[i];
+    const solForToken = solAfterFees * (percentage / 100);
+    const lamports = Math.floor(solForToken * LAMPORTS_PER_SOL);
+
+    // On devnet, swap to USDC instead
+    const finalOutputMint = isDevnet ? DEVNET_USDC : tokenMint;
+
+    console.log(`[JupiterSwap] Getting quote ${i + 1}/${tokenMints.length}: ${solForToken.toFixed(4)} SOL → ${symbol}`);
+
+    try {
+      const quote = await getJupiterQuote(
+        SOL_MINT,
+        finalOutputMint.toBase58(),
+        lamports,
+        isDevnet ? 100 : 50, // Higher slippage on devnet
+        isDevnet
+      );
+
+      if (!quote) {
+        console.log(`[JupiterSwap] ⚠️ No quote for ${symbol}, skipping...`);
+        continue;
+      }
+
+      const unsignedTx = await buildUnsignedSwapTransaction(userWallet, quote, isDevnet);
+
+      swapTransactions.push({
+        transaction: unsignedTx,
+        inputMint: SOL_MINT,
+        outputMint: finalOutputMint.toBase58(),
+        inputAmount: solForToken,
+        expectedOutputAmount: parseInt(quote.outAmount),
+        priceImpactPct: quote.priceImpactPct,
+        tokenSymbol: symbol,
+        tokenWeight: percentage,
+      });
+
+      console.log(`[JupiterSwap] ✅ Quote ${i + 1}: ${quote.outAmount} tokens expected`);
+    } catch (error: any) {
+      console.error(`[JupiterSwap] ❌ Failed to get quote for ${symbol}:`, error.message);
+    }
+  }
+
+  console.log(`[JupiterSwap] ════════════════════════════════════════`);
+  console.log(`[JupiterSwap] 📦 Prepared ${swapTransactions.length} swap transactions`);
+  console.log(`[JupiterSwap] ════════════════════════════════════════`);
+
+  return {
+    feeTransaction,
+    swapTransactions,
+    totalSolAmount,
+    solAfterFees,
+    userWallet: userWallet.toBase58(),
+    creatorWallet: creatorWallet.toBase58(),
+    network: isDevnet ? 'devnet' : 'mainnet-beta',
+  };
+}
+
+/**
+ * Build unsigned transactions for ETF sell
+ * Returns token->SOL swap transactions for user to sign
+ */
+export async function buildUnsignedEtfSell(
+  connection: Connection,
+  userWallet: PublicKey,
+  creatorWallet: PublicKey,
+  tokens: Array<{ mint: string; amount: number; symbol: string }>,
+  isDevnet: boolean = true
+): Promise<UnsignedEtfSell> {
+  const SOL_MINT = 'So11111111111111111111111111111111111111112';
+
+  console.log(`[JupiterSwap] ════════════════════════════════════════`);
+  console.log(`[JupiterSwap] 🔧 Building UNSIGNED ETF Sell`);
+  console.log(`[JupiterSwap] 📍 Network: ${isDevnet ? 'DEVNET' : 'MAINNET'}`);
+  console.log(`[JupiterSwap] 👛 User: ${userWallet.toBase58().substring(0, 8)}...`);
+  console.log(`[JupiterSwap] 💰 Tokens to sell: ${tokens.length}`);
+  console.log(`[JupiterSwap] ════════════════════════════════════════`);
+
+  const swapTransactions: UnsignedSwapTransaction[] = [];
+  let totalExpectedSol = 0;
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+
+    console.log(`[JupiterSwap] Getting sell quote ${i + 1}/${tokens.length}: ${token.symbol}`);
+
+    try {
+      const quote = await getJupiterQuote(
+        token.mint,
+        SOL_MINT,
+        Math.floor(token.amount),
+        isDevnet ? 100 : 50,
+        isDevnet
+      );
+
+      if (!quote) {
+        console.log(`[JupiterSwap] ⚠️ No sell quote for ${token.symbol}, skipping...`);
+        continue;
+      }
+
+      const unsignedTx = await buildUnsignedSwapTransaction(userWallet, quote, isDevnet);
+      const expectedSol = parseInt(quote.outAmount) / LAMPORTS_PER_SOL;
+      totalExpectedSol += expectedSol;
+
+      swapTransactions.push({
+        transaction: unsignedTx,
+        inputMint: token.mint,
+        outputMint: SOL_MINT,
+        inputAmount: token.amount,
+        expectedOutputAmount: parseInt(quote.outAmount),
+        priceImpactPct: quote.priceImpactPct,
+        tokenSymbol: token.symbol,
+        tokenWeight: 0, // Not applicable for sells
+      });
+
+      console.log(`[JupiterSwap] ✅ Sell quote ${i + 1}: ~${expectedSol.toFixed(4)} SOL expected`);
+    } catch (error: any) {
+      console.error(`[JupiterSwap] ❌ Failed to get sell quote for ${token.symbol}:`, error.message);
+    }
+  }
+
+  // Build fee transaction for proceeds
+  let feeTransaction: FeeTransaction | undefined;
+  if (totalExpectedSol > 0) {
+    feeTransaction = await buildFeeTransaction(
+      connection,
+      userWallet,
+      creatorWallet,
+      totalExpectedSol
+    );
+  }
+
+  console.log(`[JupiterSwap] ════════════════════════════════════════`);
+  console.log(`[JupiterSwap] 📦 Prepared ${swapTransactions.length} sell transactions`);
+  console.log(`[JupiterSwap] 💰 Expected total: ~${totalExpectedSol.toFixed(4)} SOL`);
+  console.log(`[JupiterSwap] ════════════════════════════════════════`);
+
+  return {
+    swapTransactions,
+    feeTransaction,
+    totalExpectedSol,
+    userWallet: userWallet.toBase58(),
+    network: isDevnet ? 'devnet' : 'mainnet-beta',
+  };
 }

@@ -25,7 +25,9 @@
       "Bash(npm run test:unit:*)",
       "Bash(solana program deploy:*)",
       "Bash(solana-keygen pubkey:*)",
-      "Bash(solana address:*)"
+      "Bash(solana address:*)",
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)"
     ]
   }
 }

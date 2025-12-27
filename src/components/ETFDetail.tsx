@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, ExternalLink, TrendingUp, TrendingDown, Wallet, User, Copy, Check, RefreshCw, Trash2 } from 'lucide-react';
+import { ArrowLeft, ExternalLink, TrendingUp, TrendingDown, Wallet, User, Copy, Check, RefreshCw, Trash2, Loader2 } from 'lucide-react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { apiGet, apiPost, apiDelete } from '../lib/api';
+import { apiGet, apiDelete } from '../lib/api';
 import { getTokenLogo } from '../lib/tokenLogos';
-import type { ETF, InvestmentResponse } from '../types';
+import type { ETF } from '../types';
 import { useToastContext } from '../contexts/ToastContext';
 import { useNetwork } from '../contexts/NetworkContext';
+import { useEtfTransaction } from '../hooks/useEtfTransaction';
 
 interface TokenWithLiveData {
   address: string;
@@ -93,10 +94,19 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
   const { publicKey, connected } = useWallet();
   const { addToast, updateToast } = useToastContext();
   const { network } = useNetwork();
+  const {
+    isLoading: txLoading,
+    currentStep,
+    progress,
+    error: txError,
+    preparePurchase,
+    executePurchase,
+    reset: resetTx,
+  } = useEtfTransaction();
+
   const [etf, setEtf] = useState<ETF | null>(null);
   const [loading, setLoading] = useState(true);
   const [investAmount, setInvestAmount] = useState('');
-  const [investing, setInvesting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
@@ -231,47 +241,57 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
 
     setError('');
     setSuccess('');
-    setInvesting(true);
+    resetTx();
 
-    // Show pending toast (convert network for toast compatibility)
+    // Show pending toast
     const toastNetwork = network === 'mainnet-beta' ? 'mainnet' : 'devnet';
     const toastId = addToast({
       type: 'etf_buy',
       status: 'pending',
-      message: `Purchasing ${investAmount} SOL of ${etf.name}...`,
+      message: `Preparing ${investAmount} SOL purchase of ${etf.name}...`,
       network: toastNetwork,
     });
 
     try {
-      const response = await apiPost<InvestmentResponse>('/api/investments/create', {
+      // Step 1: Prepare unsigned transactions
+      const unsignedTxs = await preparePurchase({
         etfId: etf.id,
         solAmount: parseFloat(investAmount),
-        userId: publicKey.toBase58(),
+        creatorWallet: etf.creator,
+        tokens: etf.tokens.map(t => ({
+          address: t.address,
+          symbol: t.symbol || 'UNKNOWN',
+          weight: t.weight || 0,
+        })),
         network: network,
       });
 
-      if (response.success) {
-        // Check if any swaps failed
-        const failedSwaps = response.swapSignatures?.filter(s => s === 'FAILED') || [];
-        if (failedSwaps.length > 0) {
-          updateToast(toastId, {
-            status: 'error',
-            message: `${failedSwaps.length} token swap(s) failed. Investment incomplete.`,
-          });
-          setError(`${failedSwaps.length} token swap(s) failed. Please contact support.`);
-          return;
-        }
+      if (!unsignedTxs) {
+        updateToast(toastId, {
+          status: 'error',
+          message: txError || 'Failed to prepare transactions',
+        });
+        setError(txError || 'Failed to prepare transactions');
+        return;
+      }
 
-        // Update toast to success with transaction details
+      // Step 2: User signs and sends transactions
+      updateToast(toastId, {
+        status: 'pending',
+        message: 'Please sign the transactions in your wallet...',
+      });
+
+      const result = await executePurchase(unsignedTxs);
+
+      if (result.success) {
         updateToast(toastId, {
           status: 'success',
           message: `Successfully purchased ${investAmount} SOL of ${etf.name}!`,
-          txSignature: response.txHash,
-          swapSignatures: response.swapSignatures,
-          tokenSubstitutions: response.tokenSubstitutions,
+          txSignature: result.signatures[0],
+          swapSignatures: result.signatures,
         });
 
-        setSuccess(`Successfully invested ${investAmount} SOL!`);
+        setSuccess(`Successfully invested ${investAmount} SOL! Tokens are now in your wallet.`);
         setInvestAmount('');
         setTimeout(() => {
           onNavigate('portfolio');
@@ -279,9 +299,9 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
       } else {
         updateToast(toastId, {
           status: 'error',
-          message: (response as any).error || 'Failed to invest',
+          message: result.error || 'Transaction failed',
         });
-        setError((response as any).error || 'Failed to invest');
+        setError(result.error || 'Transaction failed');
       }
     } catch (error: any) {
       console.error('Error investing:', error);
@@ -290,8 +310,6 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
         message: error.message || 'Failed to invest',
       });
       setError(error.message || 'Failed to invest');
-    } finally {
-      setInvesting(false);
     }
   }
 
@@ -605,9 +623,9 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
                   </div>
                 )}
 
-                {error && (
+                {(error || txError) && (
                   <div className="p-3 rounded-lg bg-transparent border border-red-500 text-red-200 text-sm">
-                    {error}
+                    {error || txError}
                   </div>
                 )}
 
@@ -617,20 +635,40 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
                   </div>
                 )}
 
+                {txLoading && currentStep && (
+                  <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/50 text-blue-200 text-sm">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>{currentStep}</span>
+                    </div>
+                    <div className="w-full bg-blue-900/50 rounded-full h-2">
+                      <div
+                        className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <button
                   onClick={handleInvest}
-                  disabled={investing || !investAmount || parseFloat(investAmount) <= 0}
+                  disabled={txLoading || !investAmount || parseFloat(investAmount) <= 0}
                   className={`w-full py-4 rounded-xl transition-all ${
-                    investing || !investAmount || parseFloat(investAmount) <= 0
+                    txLoading || !investAmount || parseFloat(investAmount) <= 0
                       ? 'bg-transparent border border-white/30 text-white/40 cursor-not-allowed'
                       : 'bg-transparent border-2 border-emerald-500 text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-400'
                   }`}
                 >
-                  {investing ? 'Processing...' : 'Invest Now'}
+                  {txLoading ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Signing...
+                    </span>
+                  ) : 'Invest Now'}
                 </button>
 
                 <p className="text-xs text-white/60 text-center">
-                  A 0.5% fee will be charged to the lister
+                  1% fee (0.5% creator + 0.5% platform) • Tokens go directly to your wallet
                 </p>
               </div>
             )}

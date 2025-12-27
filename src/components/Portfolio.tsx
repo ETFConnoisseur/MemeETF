@@ -1,21 +1,32 @@
-import { Search, TrendingDown, Loader2 } from 'lucide-react';
+import { Search, TrendingDown, Loader2, Wallet, ExternalLink } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { apiGet, apiPost } from '../lib/api';
-import type { PortfolioResponse, PortfolioHolding } from '../types';
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { apiGet } from '../lib/api';
+import type { PortfolioResponse } from '../types';
 import { useNetwork } from '../contexts/NetworkContext';
+import { useEtfTransaction } from '../hooks/useEtfTransaction';
 
 export function Portfolio() {
   const { publicKey } = useWallet();
+  const { connection } = useConnection();
   const { network } = useNetwork();
+  const {
+    isLoading: txLoading,
+    currentStep,
+    progress,
+    error: txError,
+    prepareSell,
+    executeSell,
+    reset: resetTx,
+  } = useEtfTransaction();
+
   const [searchQuery, setSearchQuery] = useState('');
   const [showHidden, setShowHidden] = useState(false);
   const [portfolio, setPortfolio] = useState<PortfolioResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [sellingEtfId, setSellingEtfId] = useState<string | null>(null);
-  const [sellAmount, setSellAmount] = useState<{ [key: string]: string }>({});
   const [showSellModal, setShowSellModal] = useState<string | null>(null);
+  const [solBalance, setSolBalance] = useState<number>(0);
 
   useEffect(() => {
     const fetchPortfolio = async () => {
@@ -65,7 +76,19 @@ export function Portfolio() {
     };
 
     fetchPortfolio();
-  }, [publicKey, network]);
+
+    // Fetch on-chain SOL balance
+    const fetchSolBalance = async () => {
+      if (!publicKey || !connection) return;
+      try {
+        const balance = await connection.getBalance(publicKey);
+        setSolBalance(balance / 1e9);
+      } catch (e) {
+        console.error('Error fetching SOL balance:', e);
+      }
+    };
+    fetchSolBalance();
+  }, [publicKey, network, connection]);
 
   const filteredHoldings = portfolio?.holdings.filter((holding) => {
     if (!searchQuery) return true;
@@ -100,24 +123,55 @@ export function Portfolio() {
   const handleSell = async (investmentId: string) => {
     if (!publicKey) return;
 
+    // Find the holding to get token info
+    const holding = filteredHoldings.find((h: any) => h.investmentId === investmentId);
+    if (!holding) {
+      alert('Investment not found');
+      return;
+    }
+
+    const holdingAny = holding as any;
+    const tokensPurchased = holdingAny.tokensPurchased || [];
+    const creatorWallet = holding.etf?.creator || '';
+
+    if (tokensPurchased.length === 0) {
+      alert('No tokens found to sell');
+      return;
+    }
+
     setSellingEtfId(investmentId);
+    resetTx();
 
     try {
-      const response = await apiPost<{ success: boolean; error?: string; newProtocolBalance?: number; realizedPnL?: number }>('/api/investments/sell', {
-        investmentId,
-        userId: publicKey.toBase58(),
+      // Step 1: Prepare sell transactions (non-custodial)
+      const sellTxs = await prepareSell({
+        creatorWallet,
+        tokens: tokensPurchased.map((t: any) => ({
+          mint: t.actualMint || t.mint,
+          amount: t.amount,
+          symbol: t.symbol,
+        })),
         network: network,
       });
 
-      if (response.success) {
-        const pnl = response.realizedPnL || 0;
-        const pnlText = pnl >= 0 ? `+${pnl.toFixed(4)}` : pnl.toFixed(4);
-        alert(`Successfully sold entire ETF position!\nRealized P&L: ${pnlText} SOL\nNew protocol balance: ${response.newProtocolBalance?.toFixed(4)} SOL`);
+      if (!sellTxs) {
+        alert(txError || 'Failed to prepare sell transactions');
+        return;
+      }
+
+      // Step 2: User signs and sends transactions
+      const result = await executeSell(sellTxs);
+
+      if (result.success) {
+        const solReceived = sellTxs.totalExpectedSol;
+        alert(`Successfully sold ETF position!\n\nExpected SOL: ~${solReceived.toFixed(4)} SOL\nTokens sold: ${tokensPurchased.length}\n\nSOL has been sent to your wallet.`);
         setShowSellModal(null);
-        // Refresh portfolio
+        // Refresh portfolio and SOL balance
         await fetchPortfolioData();
+        const newBalance = await connection.getBalance(publicKey);
+        setSolBalance(newBalance / 1e9);
       } else {
-        alert(`Failed to sell: ${response.error || 'Unknown error'}`);
+        alert(`Sell failed: ${result.error || 'Transaction failed'}`);
       }
     } catch (error: any) {
       console.error('Sell error:', error);
@@ -153,9 +207,12 @@ export function Portfolio() {
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-white mb-2">PROTOCOL BALANCE</p>
-                  <p className="text-2xl">
-                    {loading ? '...' : `${((portfolio as any)?.protocolBalance || 0).toFixed(4)} SOL`}
+                  <p className="text-sm text-white mb-2 flex items-center gap-1">
+                    <Wallet className="w-4 h-4" />
+                    WALLET BALANCE
+                  </p>
+                  <p className="text-2xl text-emerald-400">
+                    {solBalance.toFixed(4)} SOL
                   </p>
                 </div>
                 <div>
