@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Plus, X, Loader2 } from 'lucide-react';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { Transaction } from '@solana/web3.js';
+import { Buffer } from 'buffer';
 import { apiPost } from '../lib/api';
 import { useToastContext } from '../contexts/ToastContext';
 import { useNetwork } from '../contexts/NetworkContext';
@@ -34,9 +36,11 @@ interface ListNewETFProps {
 }
 
 export function ListNewETF({ onNavigate }: ListNewETFProps) {
-  const { publicKey, connected } = useWallet();
+  const { publicKey, connected, signTransaction } = useWallet();
+  const { connection } = useConnection();
   const { addToast, updateToast } = useToastContext();
   const { network } = useNetwork();
+  const [currentStep, setCurrentStep] = useState('');
   const [etfName, setEtfName] = useState('');
   const [tokenAllocations, setTokenAllocations] = useState<TokenAllocation[]>([
     { id: '1', address: '', symbol: '', name: '', image: '', marketCap: 0, percentage: 33.33 },
@@ -229,7 +233,13 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
 
   const handleDeploy = async () => {
     setError('');
+    setCurrentStep('');
     if (!validateForm()) return;
+
+    if (!signTransaction) {
+      setError('Wallet does not support transaction signing');
+      return;
+    }
 
     try {
       setDeploying(true);
@@ -248,12 +258,6 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
         return;
       }
 
-      // Calculate total market cap based on valid token allocations
-      const totalMarketCap = validTokens.reduce((sum, token) => {
-        return sum + (token.marketCap * (token.percentage / 100));
-      }, 0);
-
-      console.log('[ListNewETF] Total Market Cap calculated:', totalMarketCap);
       console.log('[ListNewETF] Token data:', validTokens.map(t => ({
         symbol: t.symbol,
         marketCap: t.marketCap,
@@ -264,43 +268,113 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
       const toastId = addToast({
         type: 'etf_create',
         status: 'pending',
-        message: `Creating ETF "${etfName}"...`,
+        message: `Preparing ETF "${etfName}"...`,
         network: network === 'mainnet-beta' ? 'mainnet' : 'devnet',
       });
 
-      const response = await apiPost<{ success: boolean; error?: string; etf?: any; txHash?: string; explorerUrl?: string }>('/api/etfs/create', {
+      // Step 1: Prepare unsigned transaction
+      setCurrentStep('Preparing transaction...');
+      const prepareResponse = await apiPost<{
+        success: boolean;
+        error?: string;
+        transaction?: string;
+        etfPda?: string;
+      }>('/api/etfs/prepare', {
         name: etfName,
-        userId: publicKey!.toBase58(),  // This is the creator's wallet address
+        userWallet: publicKey!.toBase58(),
         network: network,
         tokens: validTokens.map(t => ({
           address: t.address,
           symbol: t.symbol || 'UNKNOWN',
           name: t.name || 'Unknown Token',
-          market_cap: t.marketCap, // No fallback to 0 - we've already filtered
+          market_cap: t.marketCap,
           weight: t.percentage,
           image: t.image || '',
         })),
       });
 
-      if (response.success && response.etf) {
+      if (!prepareResponse.success || !prepareResponse.transaction) {
+        updateToast(toastId, {
+          status: 'error',
+          message: prepareResponse.error || 'Failed to prepare transaction',
+        });
+        setError(prepareResponse.error || 'Failed to prepare transaction');
+        return;
+      }
+
+      // Step 2: Sign with wallet
+      setCurrentStep('Please sign the transaction in your wallet...');
+      updateToast(toastId, {
+        status: 'pending',
+        message: 'Sign the transaction in your wallet...',
+      });
+
+      const tx = Transaction.from(Buffer.from(prepareResponse.transaction, 'base64'));
+      const signedTx = await signTransaction(tx);
+
+      // Step 3: Send transaction
+      setCurrentStep('Sending transaction...');
+      updateToast(toastId, {
+        status: 'pending',
+        message: 'Sending transaction to Solana...',
+      });
+
+      const txSignature = await connection.sendRawTransaction(signedTx.serialize());
+
+      // Wait for confirmation
+      setCurrentStep('Confirming transaction...');
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+      await connection.confirmTransaction({
+        signature: txSignature,
+        blockhash,
+        lastValidBlockHeight,
+      }, 'confirmed');
+
+      // Step 4: Confirm with backend (save to database)
+      setCurrentStep('Registering ETF...');
+      const confirmResponse = await apiPost<{
+        success: boolean;
+        error?: string;
+        etf?: any;
+        explorerUrl?: string;
+      }>('/api/etfs/confirm', {
+        name: etfName,
+        userWallet: publicKey!.toBase58(),
+        txSignature,
+        network: network,
+        tokens: validTokens.map(t => ({
+          address: t.address,
+          symbol: t.symbol || 'UNKNOWN',
+          name: t.name || 'Unknown Token',
+          market_cap: t.marketCap,
+          weight: t.percentage,
+          image: t.image || '',
+        })),
+      });
+
+      if (confirmResponse.success && confirmResponse.etf) {
         updateToast(toastId, {
           status: 'success',
           message: `Successfully created ETF "${etfName}"!`,
-          txSignature: response.txHash,
+          txSignature: txSignature,
         });
+        setCurrentStep('');
         onNavigate('dashboard');
       } else {
+        // Transaction succeeded but database save failed - still show success
         updateToast(toastId, {
-          status: 'error',
-          message: response.error || 'Failed to create ETF',
+          status: 'success',
+          message: `ETF created on-chain! ${confirmResponse.error || ''}`,
+          txSignature: txSignature,
         });
-        setError(response.error || 'Failed to create ETF');
+        setCurrentStep('');
+        onNavigate('dashboard');
       }
     } catch (err: any) {
       console.error('Error deploying ETF:', err);
-      // Extract the actual error message from the API response
       const errorMessage = err?.message || err?.data?.error || 'Failed to deploy ETF. Please try again.';
       setError(errorMessage);
+      setCurrentStep('');
     } finally {
       setDeploying(false);
     }
@@ -459,15 +533,26 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
           </div>
         )}
 
+        {/* Progress Indicator */}
+        {deploying && currentStep && (
+          <div className="rounded-2xl border border-blue-500/50 backdrop-blur-sm p-6">
+            <div className="flex items-center gap-3">
+              <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+              <span className="text-blue-200">{currentStep}</span>
+            </div>
+          </div>
+        )}
+
         {/* Action Buttons */}
         <div className="grid grid-cols-2 gap-6">
-          <button 
+          <button
             onClick={() => onNavigate('dashboard')}
-            className="py-4 rounded-xl border border-white/20 text-white hover:bg-white/5 hover:border-white/30 transition-all duration-300"
+            disabled={deploying}
+            className="py-4 rounded-xl border border-white/20 text-white hover:bg-white/5 hover:border-white/30 transition-all duration-300 disabled:opacity-50"
           >
             Cancel
           </button>
-          <button 
+          <button
             onClick={handleDeploy}
             disabled={!isValid || deploying}
             className={`py-4 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 ${
@@ -479,13 +564,17 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
             {deploying ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
-                Deploying...
+                {currentStep ? 'Processing...' : 'Deploying...'}
               </>
             ) : (
-              'Deploy ETF (0.01 SOL)'
+              'Deploy ETF'
             )}
           </button>
         </div>
+
+        <p className="text-xs text-white/60 text-center">
+          You sign the transaction directly with your wallet. No private keys stored.
+        </p>
       </div>
     </div>
   );

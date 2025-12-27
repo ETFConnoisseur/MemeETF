@@ -295,6 +295,54 @@ export async function sellEtf(
 }
 
 /**
+ * Build unsigned ETF initialization transaction
+ * NON-CUSTODIAL: User signs this with their wallet
+ */
+export async function buildUnsignedInitializeEtf(
+  connection: Connection,
+  listerPubkey: PublicKey,
+  tokenAddresses: PublicKey[]
+): Promise<{ transaction: string; etfPda: string }> {
+  const [etfPda] = getEtfPda(listerPubkey);
+
+  // Data: discriminator + vec<pubkey>
+  const vecLen = Buffer.alloc(4);
+  vecLen.writeUInt32LE(tokenAddresses.length, 0);
+
+  const data = Buffer.concat([
+    DISC.initializeEtf,
+    vecLen,
+    ...tokenAddresses.map(pk => pk.toBuffer())
+  ]);
+
+  const ix = new TransactionInstruction({
+    keys: [
+      { pubkey: etfPda, isSigner: false, isWritable: true },
+      { pubkey: listerPubkey, isSigner: true, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    programId: PROGRAM_ID,
+    data,
+  });
+
+  const tx = new Transaction().add(ix);
+  tx.feePayer = listerPubkey;
+
+  // Get recent blockhash
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+  tx.recentBlockhash = blockhash;
+  tx.lastValidBlockHeight = lastValidBlockHeight;
+
+  // Serialize without signatures (user will sign on frontend)
+  const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
+
+  return {
+    transaction: serialized.toString('base64'),
+    etfPda: etfPda.toBase58(),
+  };
+}
+
+/**
  * Close ETF - accounts: [etf, lister, system_program]
  * Can only be called by the lister when total_supply is 0
  */
