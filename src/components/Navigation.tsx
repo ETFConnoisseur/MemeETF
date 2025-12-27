@@ -3,6 +3,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { WalletModal } from './WalletModal';
 import { NetworkSwitch } from './NetworkSwitch';
+import { TokenCloud } from './ui/TokenCloud';
 
 // X (Twitter) Icon
 const XIcon = () => (
@@ -33,8 +34,9 @@ export function Navigation({ activeTab, onTabChange }: NavigationProps) {
           <div className="flex items-center gap-12">
             <button
               onClick={() => onTabChange('dashboard')}
-              className="text-xl tracking-tight hover:opacity-80 transition-opacity"
+              className="flex items-center gap-2 text-xl tracking-tight hover:opacity-80 transition-opacity"
             >
+              <TokenCloud size={40} />
               MTF
             </button>
             
