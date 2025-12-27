@@ -130,28 +130,31 @@
 
   /* Solana Wallet Adapter Button Overrides */
   .wallet-adapter-button {
-    background: #000 !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    background: transparent !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
     border-radius: 0.5rem !important;
-    padding: 0.5rem 1.5rem !important;
+    padding: 0.5rem 1rem !important;
     font-size: 0.875rem !important;
-    font-weight: 500 !important;
-    color: white !important;
+    font-weight: 400 !important;
+    color: rgba(255, 255, 255, 0.8) !important;
     height: auto !important;
     transition: all 0.2s !important;
   }
 
   .wallet-adapter-button:hover {
     background: rgba(255, 255, 255, 0.05) !important;
+    border-color: rgba(255, 255, 255, 0.25) !important;
+    color: white !important;
   }
 
   .wallet-adapter-button-trigger {
-    background: #7c3aed !important;
-    border: none !important;
+    background: transparent !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
   }
 
   .wallet-adapter-button-trigger:hover {
-    background: #6d28d9 !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    border-color: rgba(255, 255, 255, 0.25) !important;
   }
 
   .wallet-adapter-modal-wrapper {
