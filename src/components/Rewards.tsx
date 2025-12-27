@@ -46,6 +46,8 @@ const getExplorerUrl = (signature: string, network: string) => {
   return `https://solscan.io/tx/${signature}${cluster}`;
 };
 
+const ITEMS_PER_PAGE = 5;
+
 export function Rewards() {
   const { network } = useNetwork();
   const { publicKey, connected } = useWallet();
@@ -53,6 +55,7 @@ export function Rewards() {
   const [loading, setLoading] = useState(true);
   const [totalFees, setTotalFees] = useState(0);
   const [unclaimedFees, setUnclaimedFees] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     if (connected && publicKey) {
@@ -88,6 +91,21 @@ export function Rewards() {
     }
   }
 
+  // Calculate pagination
+  const totalPages = Math.ceil(transactions.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = startIndex + ITEMS_PER_PAGE;
+  const paginatedTransactions = transactions.slice(startIndex, endIndex);
+
+  // Calculate stats
+  const totalInvestors = new Set(transactions.map(tx => tx.wallet)).size;
+
+  const goToPage = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
+
   if (!connected) {
     return (
       <div className="max-w-7xl mx-auto px-6 lg:px-8 py-12">
@@ -101,66 +119,100 @@ export function Rewards() {
 
   return (
     <div className="max-w-7xl mx-auto px-6 lg:px-8 py-12">
-      <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-8 transition-all duration-300 hover:border-white/20">
-        <h2 className="text-2xl mb-2">Creator Rewards</h2>
-        <p className="text-white/60 text-sm mb-6">Fees earned from users buying your ETFs (0.5% per purchase)</p>
-
-        {/* Stats */}
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          <div className="rounded-lg border border-white/10 p-4">
-            <p className="text-xs text-white/60 mb-1">Total Earned</p>
-            <p className="text-xl text-emerald-400 font-medium">{totalFees.toFixed(4)} SOL</p>
-          </div>
-          <div className="rounded-lg border border-white/10 p-4">
-            <p className="text-xs text-white/60 mb-1">Unclaimed</p>
-            <p className="text-xl text-yellow-400 font-medium">{unclaimedFees.toFixed(4)} SOL</p>
-          </div>
+      {/* Stats Section */}
+      <div className="grid grid-cols-2 gap-6 mb-8">
+        <div className="rounded-xl bg-black border border-white/10 p-6">
+          <p className="text-sm text-white/60 mb-1">Total Investors</p>
+          <p className="text-3xl text-white">{totalInvestors}</p>
         </div>
+        <div className="rounded-xl bg-black border border-white/10 p-6">
+          <p className="text-sm text-white/60 mb-1">Total Volume</p>
+          <p className="text-3xl text-white">{totalFees.toFixed(4)} SOL</p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 backdrop-blur-sm p-8 transition-all duration-300 hover:border-white/20">
+        <h2 className="text-2xl mb-6">Transactions</h2>
 
         {loading ? (
           <p className="text-white/40 text-center py-8">Loading transactions...</p>
         ) : transactions.length === 0 ? (
           <p className="text-white/40 text-center py-8">No fee transactions yet. Create an ETF and earn 0.5% on every purchase!</p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow className="border-white/10 hover:bg-transparent">
-                <TableHead className="text-white">Buyer</TableHead>
-                <TableHead className="text-white">ETF</TableHead>
-                <TableHead className="text-white">Transaction</TableHead>
-                <TableHead className="text-white text-right">Fee Earned</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {transactions.map((tx, index) => (
-                <TableRow key={index} className="border-white/10 hover:bg-white/5">
-                  <TableCell className="text-white font-mono">
-                    {truncateWallet(tx.wallet)}
-                  </TableCell>
-                  <TableCell className="text-white/80">
-                    {tx.etfName || '-'}
-                  </TableCell>
-                  <TableCell>
-                    {tx.signature ? (
-                      <a
-                        href={getExplorerUrl(tx.signature, network)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-emerald-400 hover:text-emerald-300 hover:underline font-mono"
-                      >
-                        {truncateSignature(tx.signature)}
-                      </a>
-                    ) : (
-                      <span className="text-white/40">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right text-emerald-400 font-medium">
-                    {tx.amount.toFixed(4)} SOL
-                  </TableCell>
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow className="border-white/10 hover:bg-transparent">
+                  <TableHead className="text-white">Wallet</TableHead>
+                  <TableHead className="text-white">Transaction</TableHead>
+                  <TableHead className="text-white text-right">Amount</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {paginatedTransactions.map((tx, index) => (
+                  <TableRow key={index} className="border-white/10 hover:bg-white/5">
+                    <TableCell className="text-white font-mono">
+                      {truncateWallet(tx.wallet)}
+                    </TableCell>
+                    <TableCell>
+                      {tx.signature ? (
+                        <a
+                          href={getExplorerUrl(tx.signature, network)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-emerald-400 hover:text-emerald-300 hover:underline font-mono"
+                        >
+                          {truncateSignature(tx.signature)}
+                        </a>
+                      ) : (
+                        <span className="text-white/40">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right text-emerald-400 font-medium">
+                      {tx.amount.toFixed(4)} SOL
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-6 pt-6 border-t border-white/10">
+                <button
+                  onClick={() => goToPage(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="px-4 py-2 rounded-lg border border-white/10 text-white/60 hover:text-white hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                >
+                  Previous
+                </button>
+
+                <div className="flex items-center gap-2">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                    <button
+                      key={page}
+                      onClick={() => goToPage(page)}
+                      className={`w-8 h-8 rounded-lg transition-all ${
+                        currentPage === page
+                          ? 'bg-white/10 text-white'
+                          : 'text-white/60 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() => goToPage(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="px-4 py-2 rounded-lg border border-white/10 text-white/60 hover:text-white hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

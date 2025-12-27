@@ -124,8 +124,8 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
           </div>
 
           {/* Info Box */}
-          <div className="rounded-lg bg-blue-500/10 border border-blue-500/30 p-4">
-            <p className="text-sm text-blue-200">
+          <div className="rounded-lg bg-black border border-white/10 p-4">
+            <p className="text-sm text-white/80">
               This is a <strong>non-custodial</strong> platform. Your tokens stay in your wallet.
               You sign transactions directly with Phantom/Solflare.
             </p>
@@ -137,7 +137,7 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
               href={explorerUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="w-full py-3 rounded-lg bg-white/5 border border-white/20 text-white hover:bg-white/10 transition-all flex items-center justify-center gap-2"
+              className="w-full py-3 rounded-lg bg-black border border-white/10 text-white hover:bg-white/5 transition-all flex items-center justify-center gap-2"
             >
               <ExternalLink className="w-4 h-4" />
               View on Solscan
@@ -145,7 +145,7 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
 
             <button
               onClick={handleDisconnect}
-              className="w-full py-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition-all"
+              className="w-full py-3 rounded-lg bg-black border border-red-500 text-red-300 hover:bg-red-500/10 transition-all"
             >
               Disconnect Wallet
             </button>

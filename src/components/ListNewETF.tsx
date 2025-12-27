@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, X, Loader2 } from 'lucide-react';
+import { Plus, X, Loader2, MessageCircle } from 'lucide-react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { Transaction } from '@solana/web3.js';
 import { Buffer } from 'buffer';
@@ -29,6 +29,7 @@ interface TokenAllocation {
   marketCap: number;
   percentage: number;
   loading?: boolean;
+  note?: string;
 }
 
 interface ListNewETFProps {
@@ -42,6 +43,8 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
   const { network } = useNetwork();
   const [currentStep, setCurrentStep] = useState('');
   const [etfName, setEtfName] = useState('');
+  const [tweetLink, setTweetLink] = useState('');
+  const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
   const [tokenAllocations, setTokenAllocations] = useState<TokenAllocation[]>([
     { id: '1', address: '', symbol: '', name: '', image: '', marketCap: 0, percentage: 33.33 },
     { id: '2', address: '', symbol: '', name: '', image: '', marketCap: 0, percentage: 33.33 },
@@ -208,6 +211,26 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
         token.id === id ? { ...token, percentage } : token
       )
     );
+  };
+
+  const updateTokenNote = (id: string, note: string) => {
+    setTokenAllocations(
+      tokenAllocations.map((token) =>
+        token.id === id ? { ...token, note } : token
+      )
+    );
+  };
+
+  const toggleNote = (id: string) => {
+    setExpandedNotes(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
   };
 
   const validateForm = (): boolean => {
@@ -411,6 +434,16 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
             placeholder="My Custom Token ETF"
             className="w-full px-6 py-4 rounded-xl border border-white/10 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
           />
+
+          <label className="block mb-4 mt-6">Tweet Link (optional)</label>
+          <input
+            type="text"
+            value={tweetLink}
+            onChange={(e) => setTweetLink(e.target.value)}
+            placeholder="https://x.com/yourhandle/status/..."
+            className="w-full px-6 py-4 rounded-xl border border-white/10 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
+          />
+          <p className="text-xs text-white/60 mt-2">Share a tweet showing your conviction for this ETF</p>
         </div>
 
         {/* Token Contract Addresses Section */}
@@ -460,18 +493,40 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
                     <span>Fetching token info...</span>
                   </div>
                 ) : token.name ? (
-                  <div className="flex items-center gap-4 pt-3 border-t border-white/10">
-                    {token.image && (
-                      <img src={token.image} alt={token.symbol} className="w-8 h-8 rounded-full" />
-                    )}
-                    <div className="flex-1">
-                      <p className="text-white font-medium">{token.name}</p>
-                      <p className="text-white text-sm">{token.symbol}</p>
+                  <div className="pt-3 border-t border-white/10">
+                    <div className="flex items-center gap-4">
+                      {token.image && (
+                        <img src={token.image} alt={token.symbol} className="w-8 h-8 rounded-full" />
+                      )}
+                      <div className="flex-1 flex items-center gap-2">
+                        <div>
+                          <p className="text-white font-medium">{token.name}</p>
+                          <p className="text-white text-sm">{token.symbol}</p>
+                        </div>
+                        <button
+                          onClick={() => toggleNote(token.id)}
+                          className={`p-1.5 rounded-lg transition-all ${expandedNotes.has(token.id) ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/60 hover:bg-white/5'}`}
+                          title="Add note about why you added this token"
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                        </button>
+                      </div>
+                      {token.marketCap > 0 && (
+                        <div className="text-right">
+                          <p className="text-white text-xs">Market Cap</p>
+                          <p className="text-white font-medium">{formatMarketCap(token.marketCap)}</p>
+                        </div>
+                      )}
                     </div>
-                    {token.marketCap > 0 && (
-                      <div className="text-right">
-                        <p className="text-white text-xs">Market Cap</p>
-                        <p className="text-white font-medium">{formatMarketCap(token.marketCap)}</p>
+                    {expandedNotes.has(token.id) && (
+                      <div className="mt-3">
+                        <textarea
+                          value={token.note || ''}
+                          onChange={(e) => updateTokenNote(token.id, e.target.value)}
+                          placeholder="Why did you add this token to your ETF?"
+                          className="w-full px-4 py-3 rounded-lg border border-white/10 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all text-sm resize-none"
+                          rows={2}
+                        />
                       </div>
                     )}
                   </div>
@@ -535,10 +590,10 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
 
         {/* Progress Indicator */}
         {deploying && currentStep && (
-          <div className="rounded-2xl border border-blue-500/50 backdrop-blur-sm p-6">
+          <div className="rounded-2xl bg-black border border-white/10 backdrop-blur-sm p-6">
             <div className="flex items-center gap-3">
-              <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
-              <span className="text-blue-200">{currentStep}</span>
+              <Loader2 className="w-5 h-5 animate-spin text-white/60" />
+              <span className="text-white/80">{currentStep}</span>
             </div>
           </div>
         )}

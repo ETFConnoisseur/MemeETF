@@ -1,4 +1,3 @@
-import { Trophy, Medal, Award } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { apiGet } from '../lib/api';
 import type { LeaderboardResponse, LeaderboardEntry } from '../types';
@@ -48,20 +47,13 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
     <div className="max-w-7xl mx-auto px-6 lg:px-8 py-12">
       {/* Hero Section */}
       <div className="text-center mb-12 space-y-3">
-        <div className="flex items-center justify-center gap-3">
-          <h1 className="text-5xl tracking-tight">Leaderboard</h1>
-          <Trophy className="w-10 h-10 text-yellow-500" />
-        </div>
-        <p className="text-white text-lg">Top performing ETFs and Creators</p>
+        <h1 className="text-5xl tracking-tight">Leaderboard</h1>
       </div>
 
       {/* Top 3 Podium */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
         {/* Second Place */}
         <div className="rounded-xl border-2 border-gray-400 backdrop-blur-sm p-8 text-center">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-gray-300 to-gray-500 flex items-center justify-center mx-auto mb-4">
-            <Medal className="w-8 h-8 text-white" />
-          </div>
           <p className="text-sm text-white mb-1">#2</p>
           {loading ? (
             <p className="text-white/40">Loading...</p>
@@ -80,9 +72,6 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
 
         {/* First Place */}
         <div className="rounded-xl border-2 border-yellow-500 backdrop-blur-sm p-8 text-center">
-          <div className="w-20 h-20 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center mx-auto mb-4">
-            <Trophy className="w-10 h-10 text-white" />
-          </div>
           <p className="text-sm text-white mb-1">#1</p>
           {loading ? (
             <p className="text-white/40">Loading...</p>
@@ -101,9 +90,6 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
 
         {/* Third Place */}
         <div className="rounded-xl border-2 border-amber-700 backdrop-blur-sm p-8 text-center">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-600 to-amber-800 flex items-center justify-center mx-auto mb-4">
-            <Award className="w-8 h-8 text-white" />
-          </div>
           <p className="text-sm text-white mb-1">#3</p>
           {loading ? (
             <p className="text-white/40">Loading...</p>
@@ -143,11 +129,14 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
           </div>
         ) : (
           <div>
-            {leaderboard.map((entry, index) => (
+            {leaderboard.map((entry, index) => {
+              const rank = entry.rank || index + 1;
+              const borderColorClass = rank === 1 ? 'border-l-4 border-l-yellow-500' : rank === 2 ? 'border-l-4 border-l-gray-400' : rank === 3 ? 'border-l-4 border-l-amber-600' : '';
+              return (
               <div
                 key={`${entry.user_id || index}-${entry.etf_id || index}`}
                 onClick={() => entry.etf_id && handleETFClick(entry.etf_id)}
-                className="grid grid-cols-12 gap-4 px-8 py-5 border-b border-white/5 hover:bg-white/5 transition-all cursor-pointer"
+                className={`grid grid-cols-12 gap-4 px-8 py-5 border-b border-white/5 hover:bg-white/5 transition-all cursor-pointer ${borderColorClass}`}
               >
                 <div className="col-span-1 flex items-center">
                   <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-sm text-white">
@@ -166,7 +155,8 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
                   </p>
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
         )}
       </div>

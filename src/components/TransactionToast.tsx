@@ -36,7 +36,7 @@ export function TransactionToast({ toast, onClose }: TransactionToastProps) {
       case 'success':
         return <CheckCircle className="w-5 h-5 text-emerald-400" />;
       case 'pending':
-        return <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />;
+        return <Loader2 className="w-5 h-5 text-white/60 animate-spin" />;
       case 'error':
         return <AlertCircle className="w-5 h-5 text-red-400" />;
     }
@@ -56,7 +56,7 @@ export function TransactionToast({ toast, onClose }: TransactionToastProps) {
   };
 
   return (
-    <div className="backdrop-blur-sm border border-white/20 rounded-xl p-4 shadow-2xl min-w-[400px] max-w-[500px]">
+    <div className="bg-black border border-white/10 rounded-xl p-4 shadow-2xl min-w-[400px] max-w-[500px]">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 flex-1">
           {getIcon()}
