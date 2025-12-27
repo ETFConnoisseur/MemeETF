@@ -636,6 +636,10 @@ export async function buildUnsignedSwapTransaction(
  * Build unsigned transactions for ETF purchase
  * Returns all transactions for user to sign in their wallet
  * Includes program transaction to register the purchase on-chain (shows on Solscan)
+ *
+ * @param etfPdaFromDb - Optional: The actual PDA from database (contract_address).
+ *                       If provided, enables the on-chain program transaction.
+ *                       If not provided, only fee+swap transactions are built.
  */
 export async function buildUnsignedEtfPurchase(
   connection: Connection,
@@ -645,51 +649,51 @@ export async function buildUnsignedEtfPurchase(
   tokenSymbols: string[],
   percentages: number[],
   totalSolAmount: number,
-  isDevnet: boolean = true
+  isDevnet: boolean = true,
+  etfPdaFromDb?: PublicKey  // The actual PDA from database (contract_address)
 ): Promise<UnsignedEtfPurchase> {
   const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
   console.log(`[JupiterSwap] ════════════════════════════════════════`);
-  console.log(`[JupiterSwap] 🔧 Building UNSIGNED ETF Purchase`);
-  console.log(`[JupiterSwap] 📍 Network: ${isDevnet ? 'DEVNET' : 'MAINNET'}`);
-  console.log(`[JupiterSwap] 👛 User: ${userWallet.toBase58().substring(0, 8)}...`);
-  console.log(`[JupiterSwap] 💰 Total SOL: ${totalSolAmount}`);
+  console.log(`[JupiterSwap] Building UNSIGNED ETF Purchase`);
+  console.log(`[JupiterSwap] Network: ${isDevnet ? 'DEVNET' : 'MAINNET'}`);
+  console.log(`[JupiterSwap] User: ${userWallet.toBase58().substring(0, 8)}...`);
+  console.log(`[JupiterSwap] Total SOL: ${totalSolAmount}`);
   console.log(`[JupiterSwap] ════════════════════════════════════════`);
 
-  // Get ETF PDA from creator wallet (for reference)
-  const [etfPda] = getEtfPda(creatorWallet);
-  console.log(`[JupiterSwap] 📋 ETF PDA: ${etfPda.toBase58()}`);
+  // Use the PDA from database if provided, otherwise derive it (for logging only)
+  const etfPda = etfPdaFromDb || getEtfPda(creatorWallet)[0];
+  console.log(`[JupiterSwap] ETF PDA: ${etfPda.toBase58()}${etfPdaFromDb ? ' (from database)' : ' (derived)'}`);
 
-  // NOTE: Program transaction is disabled because ETFs are stored in database only,
-  // not initialized on-chain. The buy_etf instruction would fail since the PDA doesn't exist.
-  // Fee transfers and token swaps still work correctly.
-  // To enable: initialize ETFs on-chain when created, then uncomment the block below.
-  const programTransaction: ProgramTransaction | undefined = undefined;
-  console.log(`[JupiterSwap] ℹ️ Program transaction skipped (ETFs not initialized on-chain)`);
+  // Build program transaction ONLY if we have the actual PDA from database
+  // This means the ETF was properly initialized on-chain
+  let programTransaction: ProgramTransaction | undefined = undefined;
 
-  /*
-  // Uncomment when ETFs are initialized on-chain:
-  try {
-    console.log(`[JupiterSwap] 🔗 Building program transaction (buy_etf)...`);
-    const { transaction: programTx } = await buildUnsignedBuyEtf(
-      connection,
-      userWallet,
-      etfPda,
-      creatorWallet,
-      totalSolAmount,
-      tokenMints,
-      percentages
-    );
-    programTransaction = {
-      transaction: programTx,
-      etfPda: etfPda.toBase58(),
-      description: 'Register ETF purchase on-chain',
-    };
-    console.log(`[JupiterSwap] ✅ Program transaction built`);
-  } catch (error: any) {
-    console.error(`[JupiterSwap] ⚠️ Could not build program transaction:`, error.message);
+  if (etfPdaFromDb) {
+    try {
+      console.log(`[JupiterSwap] Building program transaction (buy_etf)...`);
+      const { transaction: programTx } = await buildUnsignedBuyEtf(
+        connection,
+        userWallet,
+        etfPdaFromDb,
+        creatorWallet,
+        totalSolAmount,
+        tokenMints,
+        percentages
+      );
+      programTransaction = {
+        transaction: programTx,
+        etfPda: etfPdaFromDb.toBase58(),
+        description: 'Register ETF purchase on-chain',
+      };
+      console.log(`[JupiterSwap] Program transaction built successfully`);
+    } catch (error: any) {
+      console.error(`[JupiterSwap] Could not build program transaction:`, error.message);
+      // Continue without program transaction - fees and swaps will still work
+    }
+  } else {
+    console.log(`[JupiterSwap] Program transaction skipped (ETF not initialized on-chain)`);
   }
-  */
 
   // Build fee transaction
   const feeTransaction = await buildFeeTransaction(

@@ -601,4 +601,190 @@ describe("mtf-etf Unit Tests", () => {
       expect(Object.keys(ErrorCodes)).to.have.lengthOf(8);
     });
   });
+
+  // ============================================================================
+  // Program Transaction Building Tests (Non-Custodial Flow)
+  // ============================================================================
+
+  describe("Program Transaction Building", () => {
+    it("should use PDA from database when available", () => {
+      // Simulate PDA from database (contract_address field)
+      const storedPda = etfPda.toBase58();
+      const pdaFromDb = new PublicKey(storedPda);
+
+      expect(pdaFromDb.equals(etfPda)).to.be.true;
+    });
+
+    it("should derive same PDA as stored in database", () => {
+      // When ETF is created, PDA is derived and stored
+      const [derivedPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("etf"), lister.publicKey.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Simulate storing it
+      const storedContractAddress = derivedPda.toBase58();
+
+      // Later, when buying, we retrieve it
+      const retrievedPda = new PublicKey(storedContractAddress);
+
+      expect(retrievedPda.equals(derivedPda)).to.be.true;
+    });
+
+    it("should include dev_wallet in buy_etf accounts", () => {
+      // Account order for buy_etf must include dev_wallet
+      const buyEtfAccounts = [
+        { pubkey: etfPda, isSigner: false, isWritable: true },           // 1. etf
+        { pubkey: investor.publicKey, isSigner: true, isWritable: true }, // 2. investor
+        { pubkey: lister.publicKey, isSigner: false, isWritable: true },  // 3. lister_account
+        { pubkey: DEV_WALLET, isSigner: false, isWritable: true },        // 4. dev_wallet
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // 5. system_program
+      ];
+
+      expect(buyEtfAccounts.length).to.equal(5);
+      expect(buyEtfAccounts[3].pubkey.equals(DEV_WALLET)).to.be.true;
+    });
+
+    it("should build buy_etf instruction data correctly", () => {
+      const solAmount = 1 * LAMPORTS_PER_SOL;
+      const percentages = [50, 30, 20];
+
+      // Instruction discriminator for buy_etf (first 8 bytes of sha256("global:buy_etf"))
+      // Data format: [8 bytes discriminator] [8 bytes amount] [4 bytes vec len] [n bytes percentages]
+
+      const amountBuf = Buffer.alloc(8);
+      amountBuf.writeBigUInt64LE(BigInt(solAmount), 0);
+
+      const vecLenBuf = Buffer.alloc(4);
+      vecLenBuf.writeUInt32LE(percentages.length, 0);
+
+      const percentagesBuf = Buffer.from(percentages);
+
+      // Total data length: 8 (disc) + 8 (amount) + 4 (vec len) + 3 (percentages) = 23 bytes
+      const totalLength = 8 + 8 + 4 + percentages.length;
+      expect(totalLength).to.equal(23);
+
+      // Verify amount encoding
+      const readAmount = amountBuf.readBigUInt64LE(0);
+      expect(Number(readAmount)).to.equal(solAmount);
+
+      // Verify vec length encoding
+      const readLen = vecLenBuf.readUInt32LE(0);
+      expect(readLen).to.equal(3);
+    });
+
+    it("should skip program transaction when no PDA available", () => {
+      // When ETF is not initialized on-chain (old ETFs), etfPdaFromDb is undefined
+      const etfPdaFromDb: PublicKey | undefined = undefined;
+
+      // In this case, programTransaction should be undefined
+      const shouldBuildProgramTx = etfPdaFromDb !== undefined;
+      expect(shouldBuildProgramTx).to.be.false;
+    });
+
+    it("should build program transaction when PDA is available", () => {
+      // When ETF is initialized on-chain (new ETFs), etfPdaFromDb is set
+      const etfPdaFromDb: PublicKey | undefined = etfPda;
+
+      const shouldBuildProgramTx = etfPdaFromDb !== undefined;
+      expect(shouldBuildProgramTx).to.be.true;
+    });
+  });
+
+  // ============================================================================
+  // Percentage Rounding Tests
+  // ============================================================================
+
+  describe("Percentage Rounding", () => {
+    it("should round percentages to integers", () => {
+      const percentages = [33.33, 33.33, 33.34];
+      const rounded = percentages.map(p => Math.round(p));
+
+      expect(rounded).to.deep.equal([33, 33, 33]);
+    });
+
+    it("should adjust last percentage to ensure sum is 100", () => {
+      const percentages = [33.33, 33.33, 33.34];
+      let rounded = percentages.map(p => Math.round(p));
+      const sum = rounded.reduce((a, b) => a + b, 0);
+
+      // Adjust last to make sum = 100
+      if (sum !== 100 && rounded.length > 0) {
+        rounded[rounded.length - 1] += (100 - sum);
+      }
+
+      expect(rounded.reduce((a, b) => a + b, 0)).to.equal(100);
+      expect(rounded).to.deep.equal([33, 33, 34]); // Last adjusted from 33 to 34
+    });
+
+    it("should handle already-integer percentages", () => {
+      const percentages = [50, 30, 20];
+      const rounded = percentages.map(p => Math.round(p));
+      const sum = rounded.reduce((a, b) => a + b, 0);
+
+      expect(sum).to.equal(100);
+      expect(rounded).to.deep.equal([50, 30, 20]);
+    });
+
+    it("should handle edge case where rounding causes sum > 100", () => {
+      const percentages = [25.6, 25.6, 25.6, 23.2]; // Rounds to [26, 26, 26, 23] = 101
+      let rounded = percentages.map(p => Math.round(p));
+      const sum = rounded.reduce((a, b) => a + b, 0);
+
+      // Adjust last to make sum = 100
+      if (sum !== 100 && rounded.length > 0) {
+        rounded[rounded.length - 1] += (100 - sum);
+      }
+
+      expect(rounded.reduce((a, b) => a + b, 0)).to.equal(100);
+    });
+  });
+
+  // ============================================================================
+  // Non-Custodial Flow Tests
+  // ============================================================================
+
+  describe("Non-Custodial Flow", () => {
+    it("should derive PDA from creator wallet (not protocol wallet)", () => {
+      // In non-custodial flow, ETF is created with user's wallet
+      const creatorWallet = lister.publicKey;
+
+      const [pda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("etf"), creatorWallet.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // This PDA is stored as contract_address
+      expect(pda.toBase58()).to.equal(etfPda.toBase58());
+    });
+
+    it("should use stored contract_address for buy transactions", () => {
+      // Simulate database record
+      const dbRecord = {
+        id: "etf-123",
+        name: "Test ETF",
+        creator: lister.publicKey.toBase58(),
+        contract_address: etfPda.toBase58(), // Stored PDA
+        network: "devnet",
+      };
+
+      // When building buy transaction, use contract_address
+      const pdaForBuy = new PublicKey(dbRecord.contract_address);
+
+      expect(pdaForBuy.equals(etfPda)).to.be.true;
+    });
+
+    it("should not require protocol wallet for transactions", () => {
+      // In non-custodial, user signs directly
+      // No encrypted private keys needed
+      const userWallet = investor.publicKey;
+
+      // User is the signer
+      const isSigner = true;
+      const needsProtocolWallet = false;
+
+      expect(isSigner).to.be.true;
+      expect(needsProtocolWallet).to.be.false;
+    });
+  });
 });

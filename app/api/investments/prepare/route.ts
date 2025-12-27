@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PublicKey, Connection, clusterApiUrl } from '@solana/web3.js';
 import { buildUnsignedEtfPurchase } from '@/lib/solana/jupiterSwap';
+import { getDatabasePool } from '@/lib/database/connection';
 
 /**
  * POST /api/investments/prepare
@@ -10,10 +11,11 @@ import { buildUnsignedEtfPurchase } from '@/lib/solana/jupiterSwap';
  *
  * Flow:
  * 1. User calls this endpoint with ETF details and wallet address
- * 2. Backend builds unsigned Jupiter swap transactions
- * 3. Returns serialized transactions to frontend
- * 4. Frontend prompts user to sign with Phantom/Solflare
- * 5. Frontend sends signed transactions to blockchain
+ * 2. Backend fetches ETF from database to get the on-chain PDA (contract_address)
+ * 3. Backend builds unsigned Jupiter swap transactions + program transaction
+ * 4. Returns serialized transactions to frontend
+ * 5. Frontend prompts user to sign with Phantom/Solflare
+ * 6. Frontend sends signed transactions to blockchain
  */
 export async function POST(request: NextRequest) {
   try {
@@ -94,6 +96,29 @@ export async function POST(request: NextRequest) {
     console.log('[Prepare] Network:', network);
     console.log('[Prepare] Tokens:', tokens.length);
 
+    // Fetch ETF from database to get the on-chain PDA (contract_address)
+    const pool = getDatabasePool();
+    let etfPda: PublicKey | undefined;
+
+    if (pool) {
+      try {
+        const etfResult = await pool.query(
+          'SELECT contract_address, creator FROM etf_listings WHERE id = $1 AND network = $2',
+          [etfId, network]
+        );
+
+        if (etfResult.rows.length > 0 && etfResult.rows[0].contract_address) {
+          etfPda = new PublicKey(etfResult.rows[0].contract_address);
+          console.log('[Prepare] Found on-chain ETF PDA:', etfPda.toBase58());
+        } else {
+          console.log('[Prepare] ETF not initialized on-chain yet, program tx will be skipped');
+        }
+      } catch (dbError) {
+        console.error('[Prepare] Database lookup failed:', dbError);
+        // Continue without program transaction
+      }
+    }
+
     // Get connection
     const isDevnet = network === 'devnet';
     const rpcUrl = isDevnet
@@ -110,7 +135,8 @@ export async function POST(request: NextRequest) {
       tokenSymbols,
       tokenWeights,
       solAmount,
-      isDevnet
+      isDevnet,
+      etfPda  // Pass the actual PDA from database
     );
 
     console.log('[Prepare] Built transactions successfully');

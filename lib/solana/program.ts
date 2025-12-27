@@ -342,6 +342,9 @@ export async function buildUnsignedInitializeEtf(
   };
 }
 
+// Dev wallet that receives 0.5% of all transactions (must match contract constant)
+const DEV_WALLET = new PublicKey('GdtZWBCTUrFneA7FdFaxyudhCLTKgBM4a9NVR3k4rPJx');
+
 /**
  * Build unsigned buy_etf transaction
  * NON-CUSTODIAL: User signs this with their wallet
@@ -374,17 +377,19 @@ export async function buildUnsignedBuyEtf(
 
   const data = Buffer.concat([DISC.buyEtf, amountBuf, vecLen, percentagesBuf]);
 
+  // Account order must match BuyETF struct in Rust:
+  // 1. etf - the ETF PDA account
+  // 2. investor - signer (user's wallet)
+  // 3. lister_account - creator's wallet (receives 0.5% fee)
+  // 4. dev_wallet - dev wallet (receives 0.5% fee)
+  // 5. system_program - for SOL transfers
   const keys = [
     { pubkey: etfPda, isSigner: false, isWritable: true },
     { pubkey: investorPubkey, isSigner: true, isWritable: true },
     { pubkey: listerPubkey, isSigner: false, isWritable: true },
+    { pubkey: DEV_WALLET, isSigner: false, isWritable: true },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
   ];
-
-  // Add token mint accounts as remaining accounts
-  for (const tokenMint of tokenAddresses) {
-    keys.push({ pubkey: tokenMint, isSigner: false, isWritable: false });
-  }
 
   const ix = new TransactionInstruction({
     keys,
