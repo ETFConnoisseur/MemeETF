@@ -1,27 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabasePool } from '@/lib/database/connection';
 
-// Fetch current token prices from DexScreener
-async function fetchTokenPrices(addresses: string[]): Promise<Record<string, number>> {
-  const prices: Record<string, number> = {};
-  
-  for (const address of addresses) {
-    try {
-      const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${address}`);
-      if (response.ok) {
-        const data = await response.json();
-        const pair = data.pairs?.[0];
-        if (pair?.marketCap) {
-          prices[address] = parseFloat(pair.marketCap);
-        } else if (pair?.fdv) {
-          prices[address] = parseFloat(pair.fdv);
+// Fetch current token prices from DexScreener with better error handling
+async function fetchTokenPrices(addresses: string[]): Promise<Record<string, number | null>> {
+  const prices: Record<string, number | null> = {};
+
+  // Process in batches to avoid rate limits
+  const batchSize = 5;
+  for (let i = 0; i < addresses.length; i += batchSize) {
+    const batch = addresses.slice(i, i + batchSize);
+
+    await Promise.all(batch.map(async (address) => {
+      try {
+        const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${address}`, {
+          headers: { 'Accept': 'application/json' },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const pair = data.pairs?.[0];
+          if (pair?.marketCap) {
+            prices[address] = parseFloat(pair.marketCap);
+          } else if (pair?.fdv) {
+            prices[address] = parseFloat(pair.fdv);
+          } else {
+            prices[address] = null; // Token not found on DexScreener
+          }
+        } else {
+          prices[address] = null;
         }
+      } catch (e) {
+        prices[address] = null;
       }
-    } catch (e) {
-      // Ignore individual failures
+    }));
+
+    // Small delay between batches to avoid rate limits
+    if (i + batchSize < addresses.length) {
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
   }
-  
+
   return prices;
 }
 
@@ -62,33 +80,43 @@ export async function GET(request: NextRequest) {
     });
 
     // Fetch current prices for all tokens
-    const currentPrices = await fetchTokenPrices(allTokenAddresses.slice(0, 30)); // Limit to avoid rate limits
+    const currentPrices = await fetchTokenPrices(allTokenAddresses.slice(0, 50)); // Increased limit
 
-    // Calculate returns for each ETF
+    // Calculate returns for each ETF - matching ETFDetail.tsx calculation
     const leaderboardEntries = result.rows.map((row) => {
       const tokens = typeof row.tokens === 'string' ? JSON.parse(row.tokens) : row.tokens;
-      const listedMC = parseFloat(row.market_cap_at_list) || 0;
-      
-      // Calculate current weighted MC (for display)
-      let currentMC = 0;
-      tokens.forEach((token: any) => {
-        const tokenCurrentMC = currentPrices[token.address] || token.market_cap || 0;
-        const weight = token.weight || 0;
-        currentMC += (tokenCurrentMC * weight / 100);
-      });
 
-      // Calculate return percentage as weighted average of individual token returns
-      let returnPercentage = 0;
+      // Calculate listed market cap (weighted sum of token MCs at listing)
+      const listedMC = parseFloat(row.market_cap_at_list) || tokens.reduce((sum: number, token: any) => {
+        return sum + ((token.market_cap || 0) * (token.weight || 0) / 100);
+      }, 0);
+
+      // Calculate current weighted MC using live prices
+      // Only use tokens where we successfully got a current price
+      let currentMC = 0;
+      let hasLiveData = false;
+
       tokens.forEach((token: any) => {
-        const tokenCurrentMC = currentPrices[token.address] || token.market_cap || 0;
-        const tokenListingMC = token.market_cap || 0;
         const weight = token.weight || 0;
-        
-        if (tokenListingMC > 0 && tokenCurrentMC > 0) {
-          const tokenReturn = ((tokenCurrentMC - tokenListingMC) / tokenListingMC) * 100;
-          returnPercentage += (tokenReturn * weight / 100);
+        const livePrice = currentPrices[token.address];
+
+        if (livePrice !== null && livePrice !== undefined) {
+          // We have live data for this token
+          currentMC += (livePrice * weight / 100);
+          hasLiveData = true;
+        } else {
+          // No live data - use the listing market cap for this token
+          // This maintains the same calculation method as ETFDetail
+          currentMC += ((token.market_cap || 0) * weight / 100);
         }
       });
+
+      // Calculate return percentage: (current - listed) / listed * 100
+      // This matches the ETFDetail.tsx calculation exactly
+      let returnPercentage = 0;
+      if (listedMC > 0 && currentMC > 0) {
+        returnPercentage = ((currentMC - listedMC) / listedMC) * 100;
+      }
 
       return {
         etf_id: row.id,
@@ -98,6 +126,7 @@ export async function GET(request: NextRequest) {
         return_percentage: returnPercentage,
         market_cap_at_list: listedMC,
         current_market_cap: currentMC,
+        has_live_data: hasLiveData,
         investment_count: parseInt(row.investment_count),
         total_invested: parseFloat(row.total_invested || 0),
         created_at: row.created_at,
@@ -106,13 +135,21 @@ export async function GET(request: NextRequest) {
 
     // Sort by return percentage descending and add ranks
     leaderboardEntries.sort((a, b) => b.return_percentage - a.return_percentage);
-    
+
     const leaderboard = leaderboardEntries.map((entry, index) => ({
       ...entry,
       rank: index + 1,
     }));
 
-    return NextResponse.json({ success: true, leaderboard });
+    // Add cache headers to allow fresh data on each request
+    return NextResponse.json(
+      { success: true, leaderboard },
+      {
+        headers: {
+          'Cache-Control': 'no-store, max-age=0',
+        },
+      }
+    );
   } catch (error) {
     console.error('Error fetching leaderboard:', error);
     return NextResponse.json({ success: true, leaderboard: [] });
