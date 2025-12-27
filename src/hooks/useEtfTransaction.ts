@@ -193,7 +193,15 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
           console.log('[ETF Purchase] Program transaction confirmed:', programSignature);
         } catch (programError: any) {
           console.error('[ETF Purchase] Program transaction failed:', programError);
-          // Continue with fee + swaps even if program tx fails
+          // Check if user rejected/cancelled the transaction
+          const errorMessage = programError?.message?.toLowerCase() || '';
+          if (errorMessage.includes('user rejected') ||
+              errorMessage.includes('user cancelled') ||
+              errorMessage.includes('user denied') ||
+              errorMessage.includes('rejected the request')) {
+            throw new Error('Transaction cancelled by user');
+          }
+          // Continue with fee + swaps even if program tx fails for other reasons
         }
       }
 
@@ -210,15 +218,28 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
         feeTx.recentBlockhash = blockhash;
         feeTx.lastValidBlockHeight = lastValidBlockHeight;
 
-        const signedFeeTx = await signTransaction(feeTx);
-        const feeSignature = await connection.sendRawTransaction(signedFeeTx.serialize());
-        await connection.confirmTransaction({
-          signature: feeSignature,
-          blockhash,
-          lastValidBlockHeight,
-        }, 'confirmed');
+        try {
+          const signedFeeTx = await signTransaction(feeTx);
+          const feeSignature = await connection.sendRawTransaction(signedFeeTx.serialize());
+          await connection.confirmTransaction({
+            signature: feeSignature,
+            blockhash,
+            lastValidBlockHeight,
+          }, 'confirmed');
 
-        signatures.push(feeSignature);
+          signatures.push(feeSignature);
+        } catch (feeError: any) {
+          console.error('[ETF Purchase] Fee transaction failed:', feeError);
+          // Check if user rejected/cancelled the transaction
+          const errorMessage = feeError?.message?.toLowerCase() || '';
+          if (errorMessage.includes('user rejected') ||
+              errorMessage.includes('user cancelled') ||
+              errorMessage.includes('user denied') ||
+              errorMessage.includes('rejected the request')) {
+            throw new Error('Transaction cancelled by user');
+          }
+          throw feeError; // Re-throw other errors
+        }
       } else {
         console.log('[ETF Purchase] Skipping fee tx - fees handled by program transaction');
       }
@@ -226,6 +247,7 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
 
       // Step 3: Sign and send swap transactions
       const totalSwaps = purchase.swapTransactions.length;
+      let successfulSwaps = 0;
 
       for (let i = 0; i < totalSwaps; i++) {
         const swap = purchase.swapTransactions[i];
@@ -252,10 +274,24 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
           }, 'confirmed');
 
           signatures.push(swapSignature);
+          successfulSwaps++;
         } catch (swapError: any) {
           console.error(`Swap ${i + 1} failed:`, swapError);
-          // Continue with other swaps
+          // Check if user rejected/cancelled the transaction
+          const errorMessage = swapError?.message?.toLowerCase() || '';
+          if (errorMessage.includes('user rejected') ||
+              errorMessage.includes('user cancelled') ||
+              errorMessage.includes('user denied') ||
+              errorMessage.includes('rejected the request')) {
+            throw new Error('Transaction cancelled by user');
+          }
+          // Continue with other swaps for non-cancellation errors
         }
+      }
+
+      // Only mark as success if at least one swap was confirmed
+      if (successfulSwaps === 0 && totalSwaps > 0) {
+        throw new Error('All swap transactions failed');
       }
 
       setProgress(100);
@@ -337,6 +373,7 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
 
     try {
       const totalSwaps = sell.swapTransactions.length;
+      let successfulSwaps = 0;
 
       for (let i = 0; i < totalSwaps; i++) {
         const swap = sell.swapTransactions[i];
@@ -361,9 +398,24 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
           }, 'confirmed');
 
           signatures.push(swapSignature);
+          successfulSwaps++;
         } catch (swapError: any) {
           console.error(`Sell swap ${i + 1} failed:`, swapError);
+          // Check if user rejected/cancelled the transaction
+          const errorMessage = swapError?.message?.toLowerCase() || '';
+          if (errorMessage.includes('user rejected') ||
+              errorMessage.includes('user cancelled') ||
+              errorMessage.includes('user denied') ||
+              errorMessage.includes('rejected the request')) {
+            throw new Error('Transaction cancelled by user');
+          }
+          // Continue with other swaps for non-cancellation errors
         }
+      }
+
+      // Only mark as success if at least one swap was confirmed
+      if (successfulSwaps === 0 && totalSwaps > 0) {
+        throw new Error('All sell transactions failed');
       }
 
       // Sign and send fee transaction if present
@@ -378,15 +430,28 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
         feeTx.recentBlockhash = blockhash;
         feeTx.lastValidBlockHeight = lastValidBlockHeight;
 
-        const signedFeeTx = await signTransaction(feeTx);
-        const feeSignature = await connection.sendRawTransaction(signedFeeTx.serialize());
-        await connection.confirmTransaction({
-          signature: feeSignature,
-          blockhash,
-          lastValidBlockHeight,
-        }, 'confirmed');
+        try {
+          const signedFeeTx = await signTransaction(feeTx);
+          const feeSignature = await connection.sendRawTransaction(signedFeeTx.serialize());
+          await connection.confirmTransaction({
+            signature: feeSignature,
+            blockhash,
+            lastValidBlockHeight,
+          }, 'confirmed');
 
-        signatures.push(feeSignature);
+          signatures.push(feeSignature);
+        } catch (feeError: any) {
+          console.error('[ETF Sell] Fee transaction failed:', feeError);
+          // Check if user rejected/cancelled the transaction
+          const errorMessage = feeError?.message?.toLowerCase() || '';
+          if (errorMessage.includes('user rejected') ||
+              errorMessage.includes('user cancelled') ||
+              errorMessage.includes('user denied') ||
+              errorMessage.includes('rejected the request')) {
+            throw new Error('Transaction cancelled by user');
+          }
+          throw feeError; // Re-throw other errors
+        }
       }
 
       setProgress(100);
