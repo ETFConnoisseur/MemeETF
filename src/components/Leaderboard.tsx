@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Twitter } from 'lucide-react';
 import { apiGet } from '../lib/api';
 import type { LeaderboardResponse, LeaderboardEntry } from '../types';
 import { useNetwork } from '../contexts/NetworkContext';
@@ -43,6 +44,54 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
     onNavigate('etf-detail', { etfId });
   };
 
+  const renderUser = (entry: LeaderboardEntry, textSize: string = 'text-lg') => {
+    const hasTwitter = !!entry.twitter_handle;
+    const displayName = hasTwitter
+      ? `@${entry.twitter_handle}`
+      : entry.user_id?.slice(0, 8) || 'Unknown';
+
+    return (
+      <div className="flex items-center gap-2 justify-center">
+        <span className={`${textSize} text-white`}>{displayName}</span>
+        {hasTwitter && (
+          <a
+            href={`https://x.com/${entry.twitter_handle}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="text-white/60 hover:text-white transition-colors"
+          >
+            <Twitter className="w-4 h-4" />
+          </a>
+        )}
+      </div>
+    );
+  };
+
+  const renderUserRow = (entry: LeaderboardEntry) => {
+    const hasTwitter = !!entry.twitter_handle;
+    const displayName = hasTwitter
+      ? `@${entry.twitter_handle}`
+      : entry.user_id?.slice(0, 12) || 'Unknown';
+
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-white">{displayName}</span>
+        {hasTwitter && (
+          <a
+            href={`https://x.com/${entry.twitter_handle}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="text-white/60 hover:text-white transition-colors"
+          >
+            <Twitter className="w-4 h-4" />
+          </a>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-6 lg:px-8 py-12">
       {/* Hero Section */}
@@ -59,9 +108,9 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
             <p className="text-white/40">Loading...</p>
           ) : topThree[1] ? (
             <>
-              <p className="text-lg text-white mb-1">{topThree[1].twitter_handle || topThree[1].user_id?.slice(0, 8) || 'Unknown'}</p>
-              <p className="text-sm text-white">{topThree[1].etf_name || 'Unknown ETF'}</p>
-              <p className={`text-xl text-white mt-2 ${(topThree[1].return_percentage || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {renderUser(topThree[1], 'text-lg')}
+              <p className="text-sm text-white mt-1">{topThree[1].etf_name || 'Unknown ETF'}</p>
+              <p className={`text-xl mt-2 ${(topThree[1].return_percentage || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                 {(topThree[1].return_percentage || 0) >= 0 ? '+' : ''}{(topThree[1].return_percentage || 0).toFixed(2)}%
               </p>
             </>
@@ -77,9 +126,9 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
             <p className="text-white/40">Loading...</p>
           ) : topThree[0] ? (
             <>
-              <p className="text-xl text-white mb-1">{topThree[0].twitter_handle || topThree[0].user_id?.slice(0, 8) || 'Unknown'}</p>
-              <p className="text-sm text-white">{topThree[0].etf_name || 'Unknown ETF'}</p>
-              <p className={`text-2xl text-white mt-2 ${(topThree[0].return_percentage || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {renderUser(topThree[0], 'text-xl')}
+              <p className="text-sm text-white mt-1">{topThree[0].etf_name || 'Unknown ETF'}</p>
+              <p className={`text-2xl mt-2 ${(topThree[0].return_percentage || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                 {(topThree[0].return_percentage || 0) >= 0 ? '+' : ''}{(topThree[0].return_percentage || 0).toFixed(2)}%
               </p>
             </>
@@ -95,9 +144,9 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
             <p className="text-white/40">Loading...</p>
           ) : topThree[2] ? (
             <>
-              <p className="text-lg text-white mb-1">{topThree[2].twitter_handle || topThree[2].user_id?.slice(0, 8) || 'Unknown'}</p>
-              <p className="text-sm text-white">{topThree[2].etf_name || 'Unknown ETF'}</p>
-              <p className={`text-xl text-white mt-2 ${(topThree[2].return_percentage || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {renderUser(topThree[2], 'text-lg')}
+              <p className="text-sm text-white mt-1">{topThree[2].etf_name || 'Unknown ETF'}</p>
+              <p className={`text-xl mt-2 ${(topThree[2].return_percentage || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                 {(topThree[2].return_percentage || 0) >= 0 ? '+' : ''}{(topThree[2].return_percentage || 0).toFixed(2)}%
               </p>
             </>
@@ -144,7 +193,7 @@ export function Leaderboard({ onNavigate }: LeaderboardProps) {
                   </div>
                 </div>
                 <div className="col-span-4 flex items-center">
-                  <p className="text-white">{entry.twitter_handle || entry.user_id?.slice(0, 12) || 'Unknown'}</p>
+                  {renderUserRow(entry)}
                 </div>
                 <div className="col-span-4 flex items-center">
                   <p className="text-white hover:text-white transition-colors">{entry.etf_name || 'Unknown ETF'}</p>
