@@ -56,3 +56,4 @@ id.json
 
 .env*.local
 .vercel
+.claude/
