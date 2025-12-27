@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabasePool } from '@/lib/database/connection';
+import { getKOLWallets } from '@/lib/database/queries';
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,12 +11,25 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '100');
 
     const pool = getDatabasePool();
-    
+
     if (!pool) {
       console.error('[ETFs API] Database pool is null');
       return NextResponse.json({ success: true, etfs: [] });
     }
-    
+
+    // Ensure user_labels table exists
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS user_labels (
+          wallet_address VARCHAR(64) PRIMARY KEY,
+          label VARCHAR(50) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+    } catch (tableError) {
+      console.log('[ETFs API] user_labels table check:', tableError);
+    }
+
     let query: string;
     let params: any[];
 
@@ -23,6 +37,19 @@ export async function GET(request: NextRequest) {
       // Filter by creator wallet address and network
       query = `SELECT * FROM etf_listings WHERE creator = $1 AND network = $2 ORDER BY created_at DESC LIMIT $3`;
       params = [creator, network, limit];
+    } else if (filter === 'kol') {
+      // Get ETFs only from KOL-labeled wallets
+      const kolWallets = await getKOLWallets();
+
+      if (kolWallets.length === 0) {
+        // No KOLs yet, return empty
+        return NextResponse.json({ success: true, etfs: [] });
+      }
+
+      // Build IN clause with placeholders
+      const placeholders = kolWallets.map((_, i) => `$${i + 2}`).join(', ');
+      query = `SELECT * FROM etf_listings WHERE network = $1 AND creator IN (${placeholders}) ORDER BY created_at DESC LIMIT $${kolWallets.length + 2}`;
+      params = [network, ...kolWallets, limit];
     } else {
       // Get all ETFs for the network
       query = `SELECT * FROM etf_listings WHERE network = $1 ORDER BY created_at DESC LIMIT $2`;

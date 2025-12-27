@@ -1,5 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Lock, Loader2, RefreshCw, ExternalLink, Users, Layers, Activity, Wallet } from 'lucide-react';
+import { Lock, Loader2, RefreshCw, ExternalLink, Users, Layers, Activity, Wallet, Tag, Plus, Trash2, Copy, Check } from 'lucide-react';
+
+interface UserLabel {
+  wallet_address: string;
+  label: string;
+  created_at: string;
+}
 
 interface AdminStats {
   database: {
@@ -27,6 +33,14 @@ export function Admin() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
 
+  // KOL Label management state
+  const [userLabels, setUserLabels] = useState<UserLabel[]>([]);
+  const [loadingLabels, setLoadingLabels] = useState(false);
+  const [newWallet, setNewWallet] = useState('');
+  const [newLabel, setNewLabel] = useState('KOL');
+  const [labelError, setLabelError] = useState('');
+  const [copiedWallet, setCopiedWallet] = useState<string | null>(null);
+
   // Check if already authenticated
   useEffect(() => {
     const savedToken = localStorage.getItem('adminToken');
@@ -36,10 +50,11 @@ export function Admin() {
     }
   }, []);
 
-  // Load stats when authenticated
+  // Load stats and labels when authenticated
   useEffect(() => {
     if (isAuthenticated && token) {
       fetchStats();
+      fetchLabels();
     }
   }, [isAuthenticated, token]);
 
@@ -76,6 +91,7 @@ export function Admin() {
     setToken('');
     setIsAuthenticated(false);
     setStats(null);
+    setUserLabels([]);
   };
 
   const fetchStats = async () => {
@@ -103,6 +119,96 @@ export function Admin() {
     } finally {
       setLoadingStats(false);
     }
+  };
+
+  const fetchLabels = async () => {
+    setLoadingLabels(true);
+    try {
+      const response = await fetch('/api/admin/labels', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          handleLogout();
+          return;
+        }
+        throw new Error(data.error || 'Failed to fetch labels');
+      }
+
+      setUserLabels(data.labels || []);
+    } catch (err: any) {
+      console.error('Failed to fetch labels:', err);
+    } finally {
+      setLoadingLabels(false);
+    }
+  };
+
+  const addLabel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLabelError('');
+
+    if (!newWallet.trim()) {
+      setLabelError('Wallet address is required');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/admin/labels', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          walletAddress: newWallet.trim(),
+          label: newLabel,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to add label');
+      }
+
+      setNewWallet('');
+      fetchLabels();
+    } catch (err: any) {
+      setLabelError(err.message);
+    }
+  };
+
+  const removeLabel = async (walletAddress: string) => {
+    try {
+      const response = await fetch('/api/admin/labels', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ walletAddress }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to remove label');
+      }
+
+      fetchLabels();
+    } catch (err: any) {
+      console.error('Failed to remove label:', err);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedWallet(text);
+    setTimeout(() => setCopiedWallet(null), 2000);
   };
 
   // Login form
@@ -287,6 +393,95 @@ export function Admin() {
               </div>
             </div>
 
+            {/* KOL Label Management */}
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-8">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 bg-purple-500/20 rounded-lg">
+                  <Tag className="w-5 h-5 text-purple-400" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-semibold">KOL Labels</h2>
+                  <p className="text-white/60 text-sm">Accounts with KOL label will have their ETFs shown in listings</p>
+                </div>
+              </div>
+
+              {/* Add new label form */}
+              <form onSubmit={addLabel} className="flex gap-3 mb-6">
+                <input
+                  type="text"
+                  value={newWallet}
+                  onChange={(e) => setNewWallet(e.target.value)}
+                  placeholder="Wallet address"
+                  className="flex-1 px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-white/40 focus:outline-none focus:border-purple-500/50"
+                />
+                <select
+                  value={newLabel}
+                  onChange={(e) => setNewLabel(e.target.value)}
+                  className="px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-purple-500/50"
+                >
+                  <option value="KOL">KOL</option>
+                  <option value="VIP">VIP</option>
+                  <option value="Partner">Partner</option>
+                </select>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg transition-all flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add
+                </button>
+              </form>
+
+              {labelError && (
+                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg mb-4">
+                  <p className="text-sm text-red-300">{labelError}</p>
+                </div>
+              )}
+
+              {/* Labels list */}
+              {loadingLabels ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-purple-400" />
+                </div>
+              ) : userLabels.length > 0 ? (
+                <div className="space-y-2">
+                  {userLabels.map((label) => (
+                    <div
+                      key={label.wallet_address}
+                      className="flex items-center justify-between p-3 bg-white/5 rounded-lg"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          label.label === 'KOL'
+                            ? 'bg-purple-500/20 text-purple-300'
+                            : label.label === 'VIP'
+                            ? 'bg-yellow-500/20 text-yellow-300'
+                            : 'bg-blue-500/20 text-blue-300'
+                        }`}>
+                          {label.label}
+                        </span>
+                        <code className="text-sm text-white/80">{label.wallet_address}</code>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-white/40">
+                          {new Date(label.created_at).toLocaleDateString()}
+                        </span>
+                        <button
+                          onClick={() => removeLabel(label.wallet_address)}
+                          className="p-2 hover:bg-red-500/20 rounded-lg transition-all group"
+                          title="Remove label"
+                        >
+                          <Trash2 className="w-4 h-4 text-white/40 group-hover:text-red-400" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-white/40 text-center py-8">No labels added yet</p>
+              )}
+            </div>
+
             {/* Recent ETFs */}
             <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-8">
               <h2 className="text-xl font-semibold mb-4">Recent ETFs</h2>
@@ -306,8 +501,19 @@ export function Admin() {
                       {stats.database.recentEtfs.map((etf: any) => (
                         <tr key={etf.id} className="border-b border-white/5">
                           <td className="py-3 pr-4 font-medium">{etf.name}</td>
-                          <td className="py-3 pr-4 text-white/60 text-sm">
-                            {etf.creator?.slice(0, 8)}...
+                          <td className="py-3 pr-4">
+                            <button
+                              onClick={() => copyToClipboard(etf.creator)}
+                              className="flex items-center gap-1.5 text-white/60 hover:text-white transition-colors group"
+                              title="Click to copy full address"
+                            >
+                              <span className="text-sm">{etf.creator?.slice(0, 8)}...</span>
+                              {copiedWallet === etf.creator ? (
+                                <Check className="w-3 h-3 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                              )}
+                            </button>
                           </td>
                           <td className="py-3 pr-4">${(etf.market_cap_at_list || 0).toLocaleString()}</td>
                           <td className="py-3 pr-4">
@@ -320,7 +526,7 @@ export function Admin() {
                             </span>
                           </td>
                           <td className="py-3 text-white/60 text-sm">
-                            {new Date(etf.created_at).toLocaleDateString()}
+                            {new Date(etf.created_at).toLocaleString()}
                           </td>
                         </tr>
                       ))}

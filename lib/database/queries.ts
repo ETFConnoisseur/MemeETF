@@ -820,11 +820,108 @@ export async function getLeaderboard(limit: number = 100): Promise<Array<{ etf: 
 export async function testConnection(): Promise<boolean> {
   const pool = getDatabasePool();
   if (!pool) return false;
-  
+
   try {
     const result = await pool.query('SELECT 1 as test');
     return result.rows.length > 0;
   } catch {
     return false;
   }
+}
+
+// =============================================================================
+// USER LABEL QUERIES
+// =============================================================================
+
+export interface UserLabel {
+  wallet_address: string;
+  label: string;
+  created_at: Date;
+}
+
+export async function getUserLabel(walletAddress: string): Promise<string | null> {
+  const pool = getDatabasePool();
+  if (!pool) return null;
+
+  const result = await pool.query(
+    'SELECT label FROM user_labels WHERE wallet_address = $1',
+    [walletAddress]
+  );
+
+  return result.rows.length > 0 ? result.rows[0].label : null;
+}
+
+export async function setUserLabel(walletAddress: string, label: string): Promise<UserLabel | null> {
+  const pool = getDatabasePool();
+  if (!pool) return null;
+
+  const result = await pool.query(
+    `INSERT INTO user_labels (wallet_address, label)
+     VALUES ($1, $2)
+     ON CONFLICT (wallet_address) DO UPDATE SET label = $2
+     RETURNING *`,
+    [walletAddress, label]
+  );
+
+  if (result.rows.length === 0) return null;
+
+  return {
+    wallet_address: result.rows[0].wallet_address,
+    label: result.rows[0].label,
+    created_at: result.rows[0].created_at,
+  };
+}
+
+export async function removeUserLabel(walletAddress: string): Promise<boolean> {
+  const pool = getDatabasePool();
+  if (!pool) return false;
+
+  const result = await pool.query(
+    'DELETE FROM user_labels WHERE wallet_address = $1 RETURNING wallet_address',
+    [walletAddress]
+  );
+
+  return result.rows.length > 0;
+}
+
+export async function getUsersByLabel(label: string): Promise<UserLabel[]> {
+  const pool = getDatabasePool();
+  if (!pool) return [];
+
+  const result = await pool.query(
+    'SELECT * FROM user_labels WHERE label = $1 ORDER BY created_at DESC',
+    [label]
+  );
+
+  return result.rows.map(row => ({
+    wallet_address: row.wallet_address,
+    label: row.label,
+    created_at: row.created_at,
+  }));
+}
+
+export async function getAllUserLabels(): Promise<UserLabel[]> {
+  const pool = getDatabasePool();
+  if (!pool) return [];
+
+  const result = await pool.query(
+    'SELECT * FROM user_labels ORDER BY created_at DESC'
+  );
+
+  return result.rows.map(row => ({
+    wallet_address: row.wallet_address,
+    label: row.label,
+    created_at: row.created_at,
+  }));
+}
+
+export async function getKOLWallets(): Promise<string[]> {
+  const pool = getDatabasePool();
+  if (!pool) return [];
+
+  const result = await pool.query(
+    "SELECT wallet_address FROM user_labels WHERE label = 'KOL'"
+  );
+
+  return result.rows.map(row => row.wallet_address);
 }
