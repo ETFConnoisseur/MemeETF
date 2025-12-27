@@ -656,12 +656,19 @@ export async function buildUnsignedEtfPurchase(
   console.log(`[JupiterSwap] 💰 Total SOL: ${totalSolAmount}`);
   console.log(`[JupiterSwap] ════════════════════════════════════════`);
 
-  // Get ETF PDA from creator wallet
+  // Get ETF PDA from creator wallet (for reference)
   const [etfPda] = getEtfPda(creatorWallet);
   console.log(`[JupiterSwap] 📋 ETF PDA: ${etfPda.toBase58()}`);
 
-  // Build program transaction first (registers purchase on-chain)
-  let programTransaction: ProgramTransaction | undefined;
+  // NOTE: Program transaction is disabled because ETFs are stored in database only,
+  // not initialized on-chain. The buy_etf instruction would fail since the PDA doesn't exist.
+  // Fee transfers and token swaps still work correctly.
+  // To enable: initialize ETFs on-chain when created, then uncomment the block below.
+  const programTransaction: ProgramTransaction | undefined = undefined;
+  console.log(`[JupiterSwap] ℹ️ Program transaction skipped (ETFs not initialized on-chain)`);
+
+  /*
+  // Uncomment when ETFs are initialized on-chain:
   try {
     console.log(`[JupiterSwap] 🔗 Building program transaction (buy_etf)...`);
     const { transaction: programTx } = await buildUnsignedBuyEtf(
@@ -681,8 +688,8 @@ export async function buildUnsignedEtfPurchase(
     console.log(`[JupiterSwap] ✅ Program transaction built`);
   } catch (error: any) {
     console.error(`[JupiterSwap] ⚠️ Could not build program transaction:`, error.message);
-    // Continue without program transaction - swaps will still work
   }
+  */
 
   // Build fee transaction
   const feeTransaction = await buildFeeTransaction(
