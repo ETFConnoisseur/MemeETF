@@ -8,6 +8,8 @@ import { initializeEtf, getEtfPda, getConnection, PROGRAM_ID } from '@/lib/solan
 
 // Maximum tokens per ETF (smart contract space limitation)
 const MAX_TOKENS_PER_ETF = 10;
+// Maximum ETFs per user
+const MAX_ETFS_PER_USER = 10;
 
 export async function POST(request: NextRequest) {
   try {
@@ -129,16 +131,17 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Check if user already has an active ETF in the database (for this network)
+    // Check if user has reached the maximum number of ETFs (for this network)
     const existingEtfCheck = await pool.query(
-      'SELECT id, name FROM etf_listings WHERE creator = $1 AND network = $2',
+      'SELECT COUNT(*) as count FROM etf_listings WHERE creator = $1 AND network = $2',
       [userId, network]
     );
 
-    if (existingEtfCheck.rows.length > 0) {
+    const etfCount = parseInt(existingEtfCheck.rows[0].count || '0');
+    if (etfCount >= MAX_ETFS_PER_USER) {
       return NextResponse.json({
         success: false,
-        error: `You already have an active ETF "${existingEtfCheck.rows[0].name}" on ${network}. Delete it first to create a new one.`
+        error: `You have reached the maximum of ${MAX_ETFS_PER_USER} ETFs on ${network}. Delete one to create a new one.`
       }, { status: 400 });
     }
 
