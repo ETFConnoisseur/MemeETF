@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { WalletContextProvider } from './components/providers/WalletProvider';
 import { Navigation } from './components/Navigation';
 import { Dashboard } from './components/Dashboard';
@@ -9,6 +9,7 @@ import { Portfolio } from './components/Portfolio';
 import { Rewards } from './components/Rewards';
 import { Settings } from './components/Settings';
 import { ListNewETF } from './components/ListNewETF';
+import { Admin } from './components/Admin';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer, useToast } from './components/TransactionToast';
 import { ToastProvider } from './contexts/ToastContext';
@@ -21,7 +22,18 @@ interface NavigationData {
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [navData, setNavData] = useState<NavigationData>({});
+  const [isAdminPage, setIsAdminPage] = useState(false);
   const { toasts, addToast, updateToast, removeToast } = useToast();
+
+  // Check if we're on the admin page
+  useEffect(() => {
+    const checkPath = () => {
+      setIsAdminPage(window.location.pathname === '/adminmonke');
+    };
+    checkPath();
+    window.addEventListener('popstate', checkPath);
+    return () => window.removeEventListener('popstate', checkPath);
+  }, []);
 
   const handleNavigate = (tab: string, data?: NavigationData) => {
     setActiveTab(tab);
@@ -74,6 +86,11 @@ export default function App() {
       );
     }
   };
+
+  // Render admin page without navigation/wallet context
+  if (isAdminPage) {
+    return <Admin />;
+  }
 
   return (
     <NetworkProvider>

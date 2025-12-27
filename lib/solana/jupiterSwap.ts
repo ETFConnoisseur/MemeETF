@@ -18,6 +18,7 @@ import {
   SystemProgram,
   TransactionMessage,
 } from '@solana/web3.js';
+import { buildUnsignedBuyEtf, getEtfPda } from './program';
 
 // Devnet USDC mint - used as placeholder for all tokens on devnet
 const DEVNET_USDC = new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
@@ -52,14 +53,23 @@ export interface FeeTransaction {
   totalFee: number;
 }
 
+// Program transaction for on-chain registration
+export interface ProgramTransaction {
+  transaction: string; // base64 serialized transaction
+  etfPda: string;
+  description: string;
+}
+
 // Complete unsigned transaction bundle for ETF purchase
 export interface UnsignedEtfPurchase {
+  programTransaction?: ProgramTransaction; // Calls buy_etf on the program (shows on Solscan)
   feeTransaction: FeeTransaction;
   swapTransactions: UnsignedSwapTransaction[];
   totalSolAmount: number;
   solAfterFees: number;
   userWallet: string;
   creatorWallet: string;
+  etfPda?: string;
   network: 'devnet' | 'mainnet-beta';
 }
 
@@ -625,6 +635,7 @@ export async function buildUnsignedSwapTransaction(
 /**
  * Build unsigned transactions for ETF purchase
  * Returns all transactions for user to sign in their wallet
+ * Includes program transaction to register the purchase on-chain (shows on Solscan)
  */
 export async function buildUnsignedEtfPurchase(
   connection: Connection,
@@ -645,7 +656,35 @@ export async function buildUnsignedEtfPurchase(
   console.log(`[JupiterSwap] 💰 Total SOL: ${totalSolAmount}`);
   console.log(`[JupiterSwap] ════════════════════════════════════════`);
 
-  // Build fee transaction first
+  // Get ETF PDA from creator wallet
+  const [etfPda] = getEtfPda(creatorWallet);
+  console.log(`[JupiterSwap] 📋 ETF PDA: ${etfPda.toBase58()}`);
+
+  // Build program transaction first (registers purchase on-chain)
+  let programTransaction: ProgramTransaction | undefined;
+  try {
+    console.log(`[JupiterSwap] 🔗 Building program transaction (buy_etf)...`);
+    const { transaction: programTx } = await buildUnsignedBuyEtf(
+      connection,
+      userWallet,
+      etfPda,
+      creatorWallet,
+      totalSolAmount,
+      tokenMints,
+      percentages
+    );
+    programTransaction = {
+      transaction: programTx,
+      etfPda: etfPda.toBase58(),
+      description: 'Register ETF purchase on-chain',
+    };
+    console.log(`[JupiterSwap] ✅ Program transaction built`);
+  } catch (error: any) {
+    console.error(`[JupiterSwap] ⚠️ Could not build program transaction:`, error.message);
+    // Continue without program transaction - swaps will still work
+  }
+
+  // Build fee transaction
   const feeTransaction = await buildFeeTransaction(
     connection,
     userWallet,
@@ -707,15 +746,20 @@ export async function buildUnsignedEtfPurchase(
 
   console.log(`[JupiterSwap] ════════════════════════════════════════`);
   console.log(`[JupiterSwap] 📦 Prepared ${swapTransactions.length} swap transactions`);
+  if (programTransaction) {
+    console.log(`[JupiterSwap] 🔗 + 1 program transaction (will show on Solscan)`);
+  }
   console.log(`[JupiterSwap] ════════════════════════════════════════`);
 
   return {
+    programTransaction,
     feeTransaction,
     swapTransactions,
     totalSolAmount,
     solAfterFees,
     userWallet: userWallet.toBase58(),
     creatorWallet: creatorWallet.toBase58(),
+    etfPda: etfPda.toBase58(),
     network: isDevnet ? 'devnet' : 'mainnet-beta',
   };
 }

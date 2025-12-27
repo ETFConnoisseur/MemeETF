@@ -343,6 +343,71 @@ export async function buildUnsignedInitializeEtf(
 }
 
 /**
+ * Build unsigned buy_etf transaction
+ * NON-CUSTODIAL: User signs this with their wallet
+ * This makes the purchase show up on the program's Solscan page
+ */
+export async function buildUnsignedBuyEtf(
+  connection: Connection,
+  investorPubkey: PublicKey,
+  etfPda: PublicKey,
+  listerPubkey: PublicKey,
+  solAmount: number,
+  tokenAddresses: PublicKey[],
+  tokenPercentages: number[]
+): Promise<{ transaction: string; etfPda: string }> {
+  const lamports = BigInt(Math.floor(solAmount * LAMPORTS_PER_SOL));
+
+  const amountBuf = Buffer.alloc(8);
+  amountBuf.writeBigUInt64LE(lamports, 0);
+
+  // Round percentages to integers and ensure they sum to exactly 100
+  let roundedPercentages = tokenPercentages.map(p => Math.round(p));
+  const sum = roundedPercentages.reduce((a, b) => a + b, 0);
+  if (sum !== 100 && roundedPercentages.length > 0) {
+    roundedPercentages[roundedPercentages.length - 1] += (100 - sum);
+  }
+
+  const vecLen = Buffer.alloc(4);
+  vecLen.writeUInt32LE(roundedPercentages.length, 0);
+  const percentagesBuf = Buffer.from(roundedPercentages);
+
+  const data = Buffer.concat([DISC.buyEtf, amountBuf, vecLen, percentagesBuf]);
+
+  const keys = [
+    { pubkey: etfPda, isSigner: false, isWritable: true },
+    { pubkey: investorPubkey, isSigner: true, isWritable: true },
+    { pubkey: listerPubkey, isSigner: false, isWritable: true },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+  ];
+
+  // Add token mint accounts as remaining accounts
+  for (const tokenMint of tokenAddresses) {
+    keys.push({ pubkey: tokenMint, isSigner: false, isWritable: false });
+  }
+
+  const ix = new TransactionInstruction({
+    keys,
+    programId: PROGRAM_ID,
+    data,
+  });
+
+  const tx = new Transaction().add(ix);
+  tx.feePayer = investorPubkey;
+
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+  tx.recentBlockhash = blockhash;
+  tx.lastValidBlockHeight = lastValidBlockHeight;
+
+  const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
+
+  return {
+    transaction: serialized.toString('base64'),
+    etfPda: etfPda.toBase58(),
+  };
+}
+
+/**
  * Close ETF - accounts: [etf, lister, system_program]
  * Can only be called by the lister when total_supply is 0
  */

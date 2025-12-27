@@ -38,13 +38,21 @@ interface FeeTransaction {
   totalFee: number;
 }
 
+interface ProgramTransaction {
+  transaction: string;
+  etfPda: string;
+  description: string;
+}
+
 interface UnsignedEtfPurchase {
+  programTransaction?: ProgramTransaction; // Calls buy_etf on the program (shows on Solscan)
   feeTransaction: FeeTransaction;
   swapTransactions: UnsignedSwapTransaction[];
   totalSolAmount: number;
   solAfterFees: number;
   userWallet: string;
   creatorWallet: string;
+  etfPda?: string;
   network: 'devnet' | 'mainnet-beta';
 }
 
@@ -160,7 +168,36 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
     const signatures: string[] = [];
 
     try {
-      // Step 1: Sign and send fee transaction
+      // Step 1: Sign and send program transaction (registers on-chain, shows on Solscan)
+      if (purchase.programTransaction) {
+        setCurrentStep('Sign program transaction (registers purchase on-chain)...');
+        setProgress(20);
+
+        const programTx = Transaction.from(Buffer.from(purchase.programTransaction.transaction, 'base64'));
+        programTx.feePayer = publicKey;
+
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+        programTx.recentBlockhash = blockhash;
+        programTx.lastValidBlockHeight = lastValidBlockHeight;
+
+        try {
+          const signedProgramTx = await signTransaction(programTx);
+          const programSignature = await connection.sendRawTransaction(signedProgramTx.serialize());
+          await connection.confirmTransaction({
+            signature: programSignature,
+            blockhash,
+            lastValidBlockHeight,
+          }, 'confirmed');
+
+          signatures.push(programSignature);
+          console.log('[ETF Purchase] Program transaction confirmed:', programSignature);
+        } catch (programError: any) {
+          console.error('[ETF Purchase] Program transaction failed:', programError);
+          // Continue with fee + swaps even if program tx fails
+        }
+      }
+
+      // Step 2: Sign and send fee transaction
       setCurrentStep('Sign fee transaction in your wallet...');
       setProgress(35);
 
@@ -182,7 +219,7 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
       signatures.push(feeSignature);
       setProgress(45);
 
-      // Step 2: Sign and send swap transactions
+      // Step 3: Sign and send swap transactions
       const totalSwaps = purchase.swapTransactions.length;
 
       for (let i = 0; i < totalSwaps; i++) {

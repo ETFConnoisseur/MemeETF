@@ -27,7 +27,9 @@
       "Bash(solana-keygen pubkey:*)",
       "Bash(solana address:*)",
       "Bash(git fetch:*)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(git filter-branch -f --msg-filter 'sed \"\"/Co-Authored-By:/d\"\" | sed \"\"/Generated with/d\"\" | sed \"\"/^$/N;/^\\\\n$/d\"\"' HEAD~3..HEAD)",
+      "Bash(dir:*)"
     ]
   }
 }
