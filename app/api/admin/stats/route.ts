@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
 
       // Mainnet balance
       const mainnetConnection = new Connection(
-        process.env.MAINNET_RPC_URL || clusterApiUrl('mainnet-beta'),
+        process.env.MAINNET_RPC_URL || process.env.MAINNET_RPC_FALLBACK || clusterApiUrl('mainnet-beta'),
         'confirmed'
       );
       const mainnetBalance = await mainnetConnection.getBalance(new PublicKey(DEV_WALLET));

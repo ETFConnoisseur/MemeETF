@@ -119,11 +119,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Get connection
+    // Get connection (with fallback for mainnet)
     const isDevnet = network === 'devnet';
     const rpcUrl = isDevnet
       ? clusterApiUrl('devnet')
-      : process.env.MAINNET_RPC_URL || clusterApiUrl('mainnet-beta');
+      : process.env.MAINNET_RPC_URL || process.env.MAINNET_RPC_FALLBACK || clusterApiUrl('mainnet-beta');
     const connection = new Connection(rpcUrl, 'confirmed');
 
     // Build unsigned transactions

@@ -31,11 +31,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid wallet address' }, { status: 400 });
     }
 
-    // Get connection
+    // Get connection (with fallback for mainnet)
     const isDevnet = network === 'devnet';
     const rpcUrl = isDevnet
       ? clusterApiUrl('devnet')
-      : process.env.MAINNET_RPC_URL || clusterApiUrl('mainnet-beta');
+      : process.env.MAINNET_RPC_URL || process.env.MAINNET_RPC_FALLBACK || clusterApiUrl('mainnet-beta');
     const connection = new Connection(rpcUrl, 'confirmed');
 
     // Verify transaction was confirmed
