@@ -31,7 +31,7 @@ const DEV_FEE_BPS = 50;     // 0.5% = 50 basis points
 const TOTAL_FEE_BPS = CREATOR_FEE_BPS + DEV_FEE_BPS; // 1% total
 
 // Dev wallet for platform fees (matches contract DEV_WALLET)
-const DEV_WALLET = new PublicKey('F2Qgu6J59kfLAKZWMT258PwFYi1Q19WuaYPPTxLeYwjz');
+const DEV_WALLET = new PublicKey('GdtZWBCTUrFneA7FdFaxyudhCLTKgBM4a9NVR3k4rPJx');
 
 // Unsigned transaction for user to sign
 export interface UnsignedSwapTransaction {
