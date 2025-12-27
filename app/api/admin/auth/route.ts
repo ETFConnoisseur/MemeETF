@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 
-// Admin credentials - set these in your environment variables
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'memeetf2024';
-const ADMIN_CODE = process.env.ADMIN_CODE || '7777';
+// Admin credentials - MUST be set in environment variables
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+const ADMIN_CODE = process.env.ADMIN_CODE;
 
 // Simple token generation (in production, use JWT or a proper session system)
 function generateToken(password: string, code: string): string {
@@ -24,6 +24,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Password and code are required' },
         { status: 400 }
+      );
+    }
+
+    // Check if admin credentials are configured
+    if (!ADMIN_PASSWORD || !ADMIN_CODE) {
+      console.error('[Admin Auth] ADMIN_PASSWORD or ADMIN_CODE not set in environment');
+      return NextResponse.json(
+        { error: 'Admin access not configured' },
+        { status: 500 }
       );
     }
 
