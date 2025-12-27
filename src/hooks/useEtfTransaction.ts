@@ -17,6 +17,7 @@ import {
   VersionedTransaction,
   SendTransactionError,
 } from '@solana/web3.js';
+import { Buffer } from 'buffer';
 
 // Types matching backend response
 interface UnsignedSwapTransaction {
