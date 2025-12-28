@@ -3,6 +3,9 @@ import { clusterApiUrl } from '@solana/web3.js';
 
 export type Network = 'devnet' | 'mainnet-beta';
 
+// Mainnet RPC - use environment variable, fallback to public endpoint
+const MAINNET_RPC = process.env.NEXT_PUBLIC_MAINNET_RPC_URL || 'https://api.mainnet-beta.solana.com';
+
 interface NetworkContextType {
   network: Network;
   setNetwork: (network: Network) => void;
@@ -19,7 +22,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   // Get RPC endpoint based on network
   const rpcEndpoint = network === 'devnet'
     ? clusterApiUrl('devnet')
-    : clusterApiUrl('mainnet-beta');
+    : MAINNET_RPC;
 
   const isDevnet = network === 'devnet';
 
