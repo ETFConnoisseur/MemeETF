@@ -172,7 +172,11 @@ export async function getJupiterUltraOrder(
     console.log(`[JupiterUltra] Fetching order from ${baseUrl}/order`);
     console.log(`[JupiterUltra] ${inputMint.substring(0, 8)}... → ${outputMint.substring(0, 8)}... (${amount} lamports)`);
 
-    const response = await fetch(`${baseUrl}/order?${params}`, { headers });
+    const url = `${baseUrl}/order?${params}`;
+    console.log(`[JupiterUltra] Request URL: ${url}`);
+    const response = await fetch(url, { headers });
+
+    console.log(`[JupiterUltra] Response status: ${response.status}`);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -181,6 +185,7 @@ export async function getJupiterUltraOrder(
     }
 
     const order = await response.json() as JupiterUltraOrderResponse;
+    console.log(`[JupiterUltra] Order response:`, JSON.stringify(order, null, 2).substring(0, 500));
 
     if (order.errorCode) {
       console.error('[JupiterUltra] Order error:', order.errorCode, order.errorMessage);
@@ -188,7 +193,7 @@ export async function getJupiterUltraOrder(
     }
 
     if (!order.transaction) {
-      console.error('[JupiterUltra] No transaction returned');
+      console.error('[JupiterUltra] No transaction returned in order:', JSON.stringify(order));
       return null;
     }
 
@@ -221,8 +226,11 @@ export async function getJupiterQuote(
       slippageBps: slippageBps.toString(),
     });
 
-    console.log(`[JupiterSwap] Fetching quote from ${baseUrl}/quote (${isDevnet ? 'devnet' : 'mainnet'})`);
-    const response = await fetch(`${baseUrl}/quote?${params}`);
+    const url = `${baseUrl}/quote?${params}`;
+    console.log(`[JupiterSwap] Fetching quote from ${url} (${isDevnet ? 'devnet' : 'mainnet'})`);
+    const response = await fetch(url);
+
+    console.log(`[JupiterSwap] Quote response status: ${response.status}`);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -231,7 +239,7 @@ export async function getJupiterQuote(
     }
 
     const quote = await response.json();
-    console.log('[JupiterSwap] Quote received successfully');
+    console.log('[JupiterSwap] Quote received:', JSON.stringify(quote, null, 2).substring(0, 500));
     return quote as JupiterQuoteResponse;
   } catch (error) {
     console.error('[JupiterSwap] Error fetching quote:', error);
@@ -857,6 +865,10 @@ export async function buildUnsignedEtfPurchase(
 
     try {
       // Try Jupiter Ultra API first (single call for quote + transaction)
+      console.log(`[JupiterSwap] Trying Ultra API for ${symbol}: SOL → ${finalOutputMint.toBase58()}`);
+      console.log(`[JupiterSwap] Full output mint: ${finalOutputMint.toBase58()}`);
+      console.log(`[JupiterSwap] Lamports: ${lamports}, User: ${userWallet.toBase58()}`);
+
       const ultraOrder = await getJupiterUltraOrder(
         SOL_MINT,
         finalOutputMint.toBase58(),
@@ -881,7 +893,8 @@ export async function buildUnsignedEtfPurchase(
         console.log(`[JupiterSwap] ✅ Ultra ${i + 1}: ${ultraOrder.outAmount} tokens via ${ultraOrder.router}`);
       } else {
         // Fall back to v6 API (quote + swap separate calls)
-        console.log(`[JupiterSwap] Ultra failed, trying v6 API for ${symbol}...`);
+        console.log(`[JupiterSwap] Ultra failed for ${symbol}, trying v6 API...`);
+        console.log(`[JupiterSwap] Ultra order result:`, ultraOrder ? JSON.stringify({ errorCode: ultraOrder.errorCode, errorMessage: ultraOrder.errorMessage, hasTransaction: !!ultraOrder.transaction }) : 'null');
 
         const quote = await getJupiterQuote(
           SOL_MINT,
@@ -924,12 +937,14 @@ export async function buildUnsignedEtfPurchase(
 
           console.log(`[JupiterSwap] ✅ Fallback ${i + 1}: ${solForToken.toFixed(4)} SOL → creator (devnet demo)`);
         } else {
-          // Mainnet with no quote - skip this token
-          console.log(`[JupiterSwap] ⚠️ No quote for ${symbol} on mainnet, skipping...`);
+          // Mainnet with no quote - log detailed error and skip this token
+          console.log(`[JupiterSwap] ⚠️ MAINNET: No quote for ${symbol} (${finalOutputMint.toBase58()}), skipping...`);
+          console.log(`[JupiterSwap] This token may not have liquidity on Jupiter. Try checking: https://jup.ag/swap/SOL-${finalOutputMint.toBase58()}`);
         }
       }
     } catch (error: any) {
       console.error(`[JupiterSwap] ❌ Failed to get swap for ${symbol}:`, error.message);
+      console.error(`[JupiterSwap] Full error:`, error);
 
       // On devnet, still create a fallback transaction even if swap fails
       if (isDevnet) {
