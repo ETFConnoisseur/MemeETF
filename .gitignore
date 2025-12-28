@@ -57,3 +57,5 @@ id.json
 .env*.local
 .vercel
 .claude/
+mainnet-deployer.json
+Guh3vGYhaCBzxWJjtw58SkcBvKzGXtDv8oEbkfQEcpbK_Keypair.json
