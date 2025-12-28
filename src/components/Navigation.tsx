@@ -75,7 +75,7 @@ export function Navigation({ activeTab, onTabChange }: NavigationProps) {
                 </button>
               </>
             ) : (
-              <WalletMultiButton className="!bg-black !border !border-white/10 hover:!bg-white/5 !transition-all !text-sm !px-6 !py-2 !rounded-lg !text-white !font-medium" />
+              <WalletMultiButton>Wallet</WalletMultiButton>
             )}
             <a
               href="https://x.com/MTFSOL"
