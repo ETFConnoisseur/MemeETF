@@ -127,6 +127,31 @@ export interface JupiterUltraOrderResponse {
   errorMessage?: string;
 }
 
+// Raydium swap response
+export interface RaydiumSwapResponse {
+  id: string;
+  success: boolean;
+  data?: {
+    swapType: string;
+    inputMint: string;
+    inputAmount: string;
+    outputMint: string;
+    outputAmount: string;
+    otherAmountThreshold: string;
+    slippageBps: number;
+    priceImpactPct: number;
+    routePlan: any[];
+  };
+}
+
+export interface RaydiumTransactionResponse {
+  id: string;
+  success: boolean;
+  data?: {
+    transaction: string; // base64 versioned transaction
+  }[];
+}
+
 /**
  * Check if a token exists on the given network
  */
@@ -201,6 +226,98 @@ export async function getJupiterUltraOrder(
     return order;
   } catch (error) {
     console.error('[JupiterUltra] Error fetching order:', error);
+    return null;
+  }
+}
+
+/**
+ * Get Raydium swap quote and transaction
+ * Raydium has native pump.fun liquidity, so it works for pump tokens that Jupiter doesn't support
+ */
+export async function getRaydiumSwap(
+  inputMint: string,
+  outputMint: string,
+  amount: number, // in lamports
+  userWallet: string,
+  slippageBps: number = 50
+): Promise<{ transaction: string; outAmount: string; priceImpactPct: string } | null> {
+  try {
+    const baseUrl = 'https://transaction-v1.raydium.io';
+
+    console.log(`[Raydium] Getting swap quote: ${inputMint.substring(0, 8)}... → ${outputMint.substring(0, 8)}...`);
+    console.log(`[Raydium] Amount: ${amount} lamports, Wallet: ${userWallet.substring(0, 8)}...`);
+
+    // Step 1: Get quote from compute endpoint
+    const computeParams = new URLSearchParams({
+      inputMint,
+      outputMint,
+      amount: amount.toString(),
+      slippageBps: slippageBps.toString(),
+      txVersion: 'V0', // Use versioned transactions
+    });
+
+    const computeUrl = `${baseUrl}/compute/swap-base-in?${computeParams}`;
+    console.log(`[Raydium] Compute URL: ${computeUrl}`);
+
+    const computeResponse = await fetch(computeUrl);
+    console.log(`[Raydium] Compute response status: ${computeResponse.status}`);
+
+    if (!computeResponse.ok) {
+      const errorText = await computeResponse.text();
+      console.error('[Raydium] Compute API error:', computeResponse.status, errorText);
+      return null;
+    }
+
+    const computeData = await computeResponse.json();
+    console.log(`[Raydium] Compute response:`, JSON.stringify(computeData, null, 2).substring(0, 500));
+
+    if (!computeData.success || !computeData.data) {
+      console.error('[Raydium] Compute failed:', computeData);
+      return null;
+    }
+
+    const quoteData = computeData.data;
+    console.log(`[Raydium] Quote: ${quoteData.outputAmount} tokens, impact: ${quoteData.priceImpactPct}%`);
+
+    // Step 2: Get transaction
+    const txResponse = await fetch(`${baseUrl}/transaction/swap-base-in`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        computeUnitPriceMicroLamports: 'auto', // Auto priority fee
+        swapResponse: quoteData,
+        txVersion: 'V0',
+        wallet: userWallet,
+        wrapSol: true,
+        unwrapSol: true,
+      }),
+    });
+
+    console.log(`[Raydium] Transaction response status: ${txResponse.status}`);
+
+    if (!txResponse.ok) {
+      const errorText = await txResponse.text();
+      console.error('[Raydium] Transaction API error:', txResponse.status, errorText);
+      return null;
+    }
+
+    const txData = await txResponse.json();
+    console.log(`[Raydium] Transaction response:`, JSON.stringify(txData, null, 2).substring(0, 300));
+
+    if (!txData.success || !txData.data || !txData.data[0]?.transaction) {
+      console.error('[Raydium] Transaction build failed:', txData);
+      return null;
+    }
+
+    console.log(`[Raydium] ✅ Swap transaction built successfully`);
+
+    return {
+      transaction: txData.data[0].transaction,
+      outAmount: quoteData.outputAmount,
+      priceImpactPct: quoteData.priceImpactPct?.toString() || '0',
+    };
+  } catch (error) {
+    console.error('[Raydium] Error:', error);
     return null;
   }
 }
@@ -937,9 +1054,34 @@ export async function buildUnsignedEtfPurchase(
 
           console.log(`[JupiterSwap] ✅ Fallback ${i + 1}: ${solForToken.toFixed(4)} SOL → creator (devnet demo)`);
         } else {
-          // Mainnet with no quote - log detailed error and skip this token
-          console.log(`[JupiterSwap] ⚠️ MAINNET: No quote for ${symbol} (${finalOutputMint.toBase58()}), skipping...`);
-          console.log(`[JupiterSwap] This token may not have liquidity on Jupiter. Try checking: https://jup.ag/swap/SOL-${finalOutputMint.toBase58()}`);
+          // Mainnet with no Jupiter quote - try Raydium (has pump.fun liquidity)
+          console.log(`[JupiterSwap] ⚠️ Jupiter failed for ${symbol}, trying Raydium...`);
+
+          const raydiumSwap = await getRaydiumSwap(
+            SOL_MINT,
+            finalOutputMint.toBase58(),
+            lamports,
+            userWallet.toBase58(),
+            100 // 1% slippage for pump tokens
+          );
+
+          if (raydiumSwap) {
+            swapTransactions.push({
+              transaction: raydiumSwap.transaction,
+              inputMint: SOL_MINT,
+              outputMint: finalOutputMint.toBase58(),
+              inputAmount: solForToken,
+              expectedOutputAmount: parseInt(raydiumSwap.outAmount),
+              priceImpactPct: raydiumSwap.priceImpactPct,
+              tokenSymbol: symbol,
+              tokenWeight: percentage,
+            });
+
+            console.log(`[JupiterSwap] ✅ Raydium ${i + 1}: ${raydiumSwap.outAmount} tokens expected`);
+          } else {
+            console.log(`[JupiterSwap] ⚠️ MAINNET: No route found for ${symbol} on Jupiter or Raydium`);
+            console.log(`[JupiterSwap] This token may not have liquidity. Try: https://jup.ag/swap/SOL-${finalOutputMint.toBase58()}`);
+          }
         }
       }
     } catch (error: any) {
@@ -966,6 +1108,35 @@ export async function buildUnsignedEtfPurchase(
           console.log(`[JupiterSwap] ✅ Fallback ${i + 1}: ${solForToken.toFixed(4)} SOL → creator (devnet demo)`);
         } catch (fallbackError: any) {
           console.error(`[JupiterSwap] Fallback also failed for ${symbol}:`, fallbackError.message);
+        }
+      } else {
+        // On mainnet, try Raydium as error recovery
+        console.log(`[JupiterSwap] Trying Raydium after Jupiter error for ${symbol}...`);
+        try {
+          const raydiumSwap = await getRaydiumSwap(
+            SOL_MINT,
+            finalOutputMint.toBase58(),
+            lamports,
+            userWallet.toBase58(),
+            100
+          );
+
+          if (raydiumSwap) {
+            swapTransactions.push({
+              transaction: raydiumSwap.transaction,
+              inputMint: SOL_MINT,
+              outputMint: finalOutputMint.toBase58(),
+              inputAmount: solForToken,
+              expectedOutputAmount: parseInt(raydiumSwap.outAmount),
+              priceImpactPct: raydiumSwap.priceImpactPct,
+              tokenSymbol: symbol,
+              tokenWeight: percentage,
+            });
+
+            console.log(`[JupiterSwap] ✅ Raydium ${i + 1}: ${raydiumSwap.outAmount} tokens (recovered from Jupiter error)`);
+          }
+        } catch (raydiumError: any) {
+          console.error(`[JupiterSwap] Raydium also failed for ${symbol}:`, raydiumError.message);
         }
       }
     }
