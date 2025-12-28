@@ -434,7 +434,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
                 {copied === 'contract' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
               </button>
               <a
-                href={`https://solscan.io/account/${etf.contract_address}?cluster=devnet`}
+                href={`https://solscan.io/account/${etf.contract_address}${network === 'devnet' ? '?cluster=devnet' : ''}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-white/40 hover:text-white/60 transition-colors"
@@ -704,7 +704,7 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
           </div>
           <div>
             <p className="text-white">Network</p>
-            <p className="text-white font-medium">Solana Devnet</p>
+            <p className="text-white font-medium">Solana {network === 'devnet' ? 'Devnet' : 'Mainnet'}</p>
           </div>
           <div>
             <p className="text-white">Fee Structure</p>

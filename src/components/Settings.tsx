@@ -3,9 +3,11 @@ import { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { apiGet, apiPost } from '../lib/api';
+import { useNetwork } from '../contexts/NetworkContext';
 
 export function Settings() {
   const { publicKey, disconnect, connected } = useWallet();
+  const { rpcEndpoint, isDevnet } = useNetwork();
   const [xUsername, setXUsername] = useState('');
   const [isXConnected, setIsXConnected] = useState(false);
   const [balance, setBalance] = useState<number | null>(null);
@@ -22,8 +24,8 @@ export function Settings() {
       try {
         setLoading(true);
 
-        // Fetch wallet balance from devnet
-        const connection = new Connection('https://api.devnet.solana.com');
+        // Fetch wallet balance using current network's RPC endpoint
+        const connection = new Connection(rpcEndpoint);
         const bal = await connection.getBalance(publicKey);
         setBalance(bal / LAMPORTS_PER_SOL);
 
@@ -49,7 +51,7 @@ export function Settings() {
     };
 
     fetchData();
-  }, [publicKey]);
+  }, [publicKey, rpcEndpoint]);
 
   // Check for OAuth callback
   useEffect(() => {
@@ -345,20 +347,22 @@ export function Settings() {
 
                   <div className="flex items-center justify-between p-5 rounded-xl border border-white/10">
                     <div className="space-y-1">
-                      <p className="text-sm text-white">Wallet Balance (Devnet)</p>
+                      <p className="text-sm text-white">Wallet Balance ({isDevnet ? 'Devnet' : 'Mainnet'})</p>
                       <p className="text-lg">
                         {loading ? 'Loading...' : balance !== null ? `${balance.toFixed(4)} SOL` : 'N/A'}
                       </p>
                     </div>
-                    <a
-                      href="https://faucet.solana.com/"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-5 py-2.5 rounded-lg border border-white/20 text-white/80 hover:text-white hover:border-white/30 hover:bg-white/5 transition-all flex items-center gap-2"
-                    >
-                      Get Devnet SOL
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
+                    {isDevnet && (
+                      <a
+                        href="https://faucet.solana.com/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-5 py-2.5 rounded-lg border border-white/20 text-white/80 hover:text-white hover:border-white/30 hover:bg-white/5 transition-all flex items-center gap-2"
+                      >
+                        Get Devnet SOL
+                        <ExternalLink className="w-4 h-4" />
+                      </a>
+                    )}
                   </div>
                 </div>
               </div>

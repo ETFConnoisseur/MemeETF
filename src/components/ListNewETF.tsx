@@ -144,26 +144,40 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
       
       // Final fallback to Jupiter
       console.log('Solscan failed, trying Jupiter for:', address);
-      const jupiterPriceResponse = await fetch(`https://price.jup.ag/v6/price?ids=${address}`);
-      const jupiterPriceData = await jupiterPriceResponse.json();
-      
-      const jupiterMetaResponse = await fetch(`https://tokens.jup.ag/token/${address}`);
-      const jupiterMeta = await jupiterMetaResponse.json();
-      
-      console.log('Jupiter data found:', jupiterMeta.name);
-      const price = jupiterPriceData.data?.[address]?.price || 0;
-      const supply = jupiterMeta.supply || 0;
-      
-      setTokenAllocations(prev => prev.map(t => 
-        t.id === tokenId ? {
-          ...t,
-          symbol: jupiterMeta.symbol || 'UNKNOWN',
-          name: jupiterMeta.name || 'Unknown Token',
-          image: jupiterMeta.logoURI || '',
-          marketCap: price * supply,
-          loading: false,
-        } : t
-      ));
+      try {
+        const jupiterPriceResponse = await fetch(`https://price.jup.ag/v6/price?ids=${address}`);
+        if (!jupiterPriceResponse.ok) {
+          throw new Error('Jupiter price API failed');
+        }
+        const jupiterPriceData = await jupiterPriceResponse.json();
+
+        const jupiterMetaResponse = await fetch(`https://tokens.jup.ag/token/${address}`);
+        if (!jupiterMetaResponse.ok) {
+          throw new Error('Jupiter metadata API failed');
+        }
+        const jupiterMeta = await jupiterMetaResponse.json();
+
+        console.log('Jupiter data found:', jupiterMeta.name);
+        const price = jupiterPriceData.data?.[address]?.price || 0;
+        const supply = jupiterMeta.supply || 0;
+
+        setTokenAllocations(prev => prev.map(t =>
+          t.id === tokenId ? {
+            ...t,
+            symbol: jupiterMeta.symbol || 'UNKNOWN',
+            name: jupiterMeta.name || 'Unknown Token',
+            image: jupiterMeta.logoURI || '',
+            marketCap: price * supply,
+            loading: false,
+          } : t
+        ));
+      } catch (jupiterError) {
+        console.warn('Jupiter API failed:', jupiterError);
+        // If all APIs fail, set loading to false so user knows it failed
+        setTokenAllocations(prev => prev.map(t =>
+          t.id === tokenId ? { ...t, loading: false } : t
+        ));
+      }
     } catch (error) {
       console.error('Failed to fetch token info from all sources:', error);
       setTokenAllocations(prev => prev.map(t => 

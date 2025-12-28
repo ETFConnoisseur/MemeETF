@@ -367,10 +367,11 @@ export function Admin() {
                       {stats.devWallet}
                     </code>
                     <a
-                      href={`https://solscan.io/account/${stats.devWallet}?cluster=devnet`}
+                      href={`https://solscan.io/account/${stats.devWallet}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-2 hover:bg-white/10 rounded-lg"
+                      title="View on Solscan (Mainnet)"
                     >
                       <ExternalLink className="w-4 h-4 text-white/60" />
                     </a>
@@ -574,7 +575,7 @@ export function Admin() {
                           <td className="py-3 pr-4">
                             {tx.tx_hash ? (
                               <a
-                                href={`https://solscan.io/tx/${tx.tx_hash}?cluster=devnet`}
+                                href={`https://solscan.io/tx/${tx.tx_hash}${tx.network === 'devnet' ? '?cluster=devnet' : ''}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-blue-400 hover:underline text-sm"
