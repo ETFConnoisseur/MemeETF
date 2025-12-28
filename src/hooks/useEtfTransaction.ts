@@ -380,6 +380,13 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
 
       // Step 3: Sign and send swap transactions with retry on blockhash expiry
       const totalSwaps = purchase.swapTransactions.length;
+      console.log(`[ETF Purchase] Total swap transactions to execute: ${totalSwaps}`);
+      console.log('[ETF Purchase] Swap transactions:', purchase.swapTransactions.map(s => ({
+        symbol: s.tokenSymbol,
+        outputMint: s.outputMint?.substring(0, 8) + '...',
+        inputAmount: s.inputAmount,
+        hasTransaction: !!s.transaction
+      })));
       let successfulSwaps = 0;
 
       for (let i = 0; i < totalSwaps; i++) {
@@ -412,7 +419,9 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
       }
 
       // Only mark as success if at least one swap was confirmed
+      console.log(`[ETF Purchase] Swap results: ${successfulSwaps}/${totalSwaps} successful`);
       if (successfulSwaps === 0 && totalSwaps > 0) {
+        console.error('[ETF Purchase] All swap transactions failed!');
         throw new Error('All swap transactions failed');
       }
 
