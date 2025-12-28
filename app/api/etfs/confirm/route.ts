@@ -136,6 +136,12 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Ensure user exists in the users table (required for foreign key)
+    await pool.query(
+      `INSERT INTO users (wallet_address) VALUES ($1) ON CONFLICT (wallet_address) DO NOTHING`,
+      [userWallet]
+    );
+
     // Insert new ETF
     const result = await pool.query(
       `INSERT INTO etf_listings (name, creator, contract_address, market_cap_at_list, tokens, token_hash, network, twitter_link)
