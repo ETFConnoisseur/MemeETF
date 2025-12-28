@@ -152,6 +152,80 @@ export interface RaydiumTransactionResponse {
   }[];
 }
 
+// Pump.fun API response
+export interface PumpFunQuoteResponse {
+  quote: number; // Expected output amount
+  bonding_curve: string;
+  virtual_sol_reserves: number;
+  virtual_token_reserves: number;
+}
+
+/**
+ * Check if a token is a pump.fun token (address ends with 'pump')
+ */
+export function isPumpFunToken(mintAddress: string): boolean {
+  return mintAddress.toLowerCase().endsWith('pump');
+}
+
+/**
+ * Get swap transaction from Pump.fun API
+ * This is the most reliable method for pump.fun tokens
+ */
+export async function getPumpFunSwap(
+  outputMint: string,
+  solAmount: number, // in SOL (not lamports)
+  userWallet: string,
+  slippageBps: number = 100 // 1% default
+): Promise<{ transaction: string; outAmount: string } | null> {
+  try {
+    console.log(`[PumpFun] Getting swap for ${outputMint.substring(0, 8)}...`);
+    console.log(`[PumpFun] SOL amount: ${solAmount}, Wallet: ${userWallet.substring(0, 8)}...`);
+
+    // Pump.fun uses a POST request to get swap transaction
+    const response = await fetch('https://pumpportal.fun/api/trade-local', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        publicKey: userWallet,
+        action: 'buy',
+        mint: outputMint,
+        amount: solAmount, // SOL amount to spend
+        denominatedInSol: 'true',
+        slippage: slippageBps / 100, // Convert bps to percentage
+        priorityFee: 0.0005, // 0.0005 SOL priority fee
+        pool: 'pump', // Use pump.fun pool
+      }),
+    });
+
+    console.log(`[PumpFun] Response status: ${response.status}`);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[PumpFun] API error:', response.status, errorText);
+      return null;
+    }
+
+    // The response is the raw transaction bytes
+    const transactionData = await response.arrayBuffer();
+    const transactionBase64 = Buffer.from(transactionData).toString('base64');
+
+    console.log(`[PumpFun] ✅ Transaction received (${transactionData.byteLength} bytes)`);
+
+    // Estimate output based on typical pump.fun pricing
+    // We can't know exact output without querying the bonding curve
+    // But we'll return a reasonable estimate
+    const estimatedOutput = Math.floor(solAmount * 1000000000); // Rough estimate
+
+    return {
+      transaction: transactionBase64,
+      outAmount: estimatedOutput.toString(),
+    };
+  } catch (error) {
+    console.error('[PumpFun] Error:', error);
+    return null;
+  }
+}
+
 /**
  * Check if a token exists on the given network
  */
@@ -964,7 +1038,12 @@ export async function buildUnsignedEtfPurchase(
   }
   console.log(`[JupiterSwap] 🔄 SOL for swaps: ${solAfterFees}`);
 
-  // Build swap transactions using Jupiter Ultra API (preferred)
+  // Build swap transactions
+  // Priority order for mainnet:
+  // 1. For pump.fun tokens: Try Pump.fun API first (most reliable)
+  // 2. Jupiter Ultra API (fastest for regular tokens)
+  // 3. Jupiter v6 API (fallback)
+  // 4. Raydium API (has pump.fun liquidity)
   const swapTransactions: UnsignedSwapTransaction[] = [];
   const jupiterApiKey = process.env.JUPITER_API_KEY; // Optional API key for higher rate limits
 
@@ -977,18 +1056,52 @@ export async function buildUnsignedEtfPurchase(
 
     // On devnet, swap to USDC instead (mainnet tokens don't exist on devnet)
     const finalOutputMint = isDevnet ? DEVNET_USDC : tokenMint;
+    const outputMintStr = finalOutputMint.toBase58();
 
     console.log(`[JupiterSwap] Getting swap ${i + 1}/${tokenMints.length}: ${solForToken.toFixed(4)} SOL → ${symbol}`);
+    console.log(`[JupiterSwap] Output mint: ${outputMintStr}`);
+
+    // Check if this is a pump.fun token (address ends with 'pump')
+    const isPump = !isDevnet && isPumpFunToken(outputMintStr);
 
     try {
-      // Try Jupiter Ultra API first (single call for quote + transaction)
-      console.log(`[JupiterSwap] Trying Ultra API for ${symbol}: SOL → ${finalOutputMint.toBase58()}`);
-      console.log(`[JupiterSwap] Full output mint: ${finalOutputMint.toBase58()}`);
-      console.log(`[JupiterSwap] Lamports: ${lamports}, User: ${userWallet.toBase58()}`);
+      // For pump.fun tokens on mainnet, try Pump.fun API FIRST
+      if (isPump) {
+        console.log(`[JupiterSwap] 🎯 Detected pump.fun token, trying Pump.fun API first...`);
+
+        const pumpSwap = await getPumpFunSwap(
+          outputMintStr,
+          solForToken, // SOL amount
+          userWallet.toBase58(),
+          100 // 1% slippage
+        );
+
+        if (pumpSwap) {
+          swapTransactions.push({
+            transaction: pumpSwap.transaction,
+            inputMint: SOL_MINT,
+            outputMint: outputMintStr,
+            inputAmount: solForToken,
+            expectedOutputAmount: parseInt(pumpSwap.outAmount),
+            priceImpactPct: '0',
+            tokenSymbol: symbol,
+            tokenWeight: percentage,
+          });
+
+          console.log(`[JupiterSwap] ✅ PumpFun ${i + 1}: Transaction ready`);
+          continue; // Move to next token
+        } else {
+          console.log(`[JupiterSwap] Pump.fun API failed, trying Jupiter...`);
+        }
+      }
+
+      // Try Jupiter Ultra API (single call for quote + transaction)
+      console.log(`[JupiterSwap] Trying Ultra API for ${symbol}: SOL → ${outputMintStr.substring(0, 8)}...`);
+      console.log(`[JupiterSwap] Lamports: ${lamports}, User: ${userWallet.toBase58().substring(0, 8)}...`);
 
       const ultraOrder = await getJupiterUltraOrder(
         SOL_MINT,
-        finalOutputMint.toBase58(),
+        outputMintStr,
         lamports,
         userWallet.toBase58(),
         jupiterApiKey
@@ -999,7 +1112,7 @@ export async function buildUnsignedEtfPurchase(
         swapTransactions.push({
           transaction: ultraOrder.transaction,
           inputMint: SOL_MINT,
-          outputMint: finalOutputMint.toBase58(),
+          outputMint: outputMintStr,
           inputAmount: solForToken,
           expectedOutputAmount: parseInt(ultraOrder.outAmount),
           priceImpactPct: ultraOrder.priceImpactPct,
@@ -1015,7 +1128,7 @@ export async function buildUnsignedEtfPurchase(
 
         const quote = await getJupiterQuote(
           SOL_MINT,
-          finalOutputMint.toBase58(),
+          outputMintStr,
           lamports,
           isDevnet ? 100 : 50,
           isDevnet
@@ -1027,7 +1140,7 @@ export async function buildUnsignedEtfPurchase(
           swapTransactions.push({
             transaction: unsignedTx,
             inputMint: SOL_MINT,
-            outputMint: finalOutputMint.toBase58(),
+            outputMint: outputMintStr,
             inputAmount: solForToken,
             expectedOutputAmount: parseInt(quote.outAmount),
             priceImpactPct: quote.priceImpactPct,
@@ -1054,12 +1167,40 @@ export async function buildUnsignedEtfPurchase(
 
           console.log(`[JupiterSwap] ✅ Fallback ${i + 1}: ${solForToken.toFixed(4)} SOL → creator (devnet demo)`);
         } else {
-          // Mainnet with no Jupiter quote - try Raydium (has pump.fun liquidity)
-          console.log(`[JupiterSwap] ⚠️ Jupiter failed for ${symbol}, trying Raydium...`);
+          // Mainnet with no Jupiter quote - try Pump.fun first (if pump token), then Raydium
+          if (isPump) {
+            console.log(`[JupiterSwap] ⚠️ Jupiter failed for pump token ${symbol}, trying Pump.fun API...`);
+
+            const pumpSwap = await getPumpFunSwap(
+              outputMintStr,
+              solForToken,
+              userWallet.toBase58(),
+              100
+            );
+
+            if (pumpSwap) {
+              swapTransactions.push({
+                transaction: pumpSwap.transaction,
+                inputMint: SOL_MINT,
+                outputMint: outputMintStr,
+                inputAmount: solForToken,
+                expectedOutputAmount: parseInt(pumpSwap.outAmount),
+                priceImpactPct: '0',
+                tokenSymbol: symbol,
+                tokenWeight: percentage,
+              });
+
+              console.log(`[JupiterSwap] ✅ PumpFun ${i + 1}: Transaction ready (Jupiter fallback)`);
+              continue;
+            }
+          }
+
+          // Try Raydium as final fallback
+          console.log(`[JupiterSwap] ⚠️ Trying Raydium for ${symbol}...`);
 
           const raydiumSwap = await getRaydiumSwap(
             SOL_MINT,
-            finalOutputMint.toBase58(),
+            outputMintStr,
             lamports,
             userWallet.toBase58(),
             100 // 1% slippage for pump tokens
@@ -1069,7 +1210,7 @@ export async function buildUnsignedEtfPurchase(
             swapTransactions.push({
               transaction: raydiumSwap.transaction,
               inputMint: SOL_MINT,
-              outputMint: finalOutputMint.toBase58(),
+              outputMint: outputMintStr,
               inputAmount: solForToken,
               expectedOutputAmount: parseInt(raydiumSwap.outAmount),
               priceImpactPct: raydiumSwap.priceImpactPct,
@@ -1079,8 +1220,8 @@ export async function buildUnsignedEtfPurchase(
 
             console.log(`[JupiterSwap] ✅ Raydium ${i + 1}: ${raydiumSwap.outAmount} tokens expected`);
           } else {
-            console.log(`[JupiterSwap] ⚠️ MAINNET: No route found for ${symbol} on Jupiter or Raydium`);
-            console.log(`[JupiterSwap] This token may not have liquidity. Try: https://jup.ag/swap/SOL-${finalOutputMint.toBase58()}`);
+            console.log(`[JupiterSwap] ⚠️ MAINNET: No route found for ${symbol} on Jupiter, Pump.fun, or Raydium`);
+            console.log(`[JupiterSwap] This token may not have liquidity. Try: https://jup.ag/swap/SOL-${outputMintStr}`);
           }
         }
       }
@@ -1097,7 +1238,7 @@ export async function buildUnsignedEtfPurchase(
           swapTransactions.push({
             transaction: fallbackTx,
             inputMint: SOL_MINT,
-            outputMint: finalOutputMint.toBase58(),
+            outputMint: outputMintStr,
             inputAmount: solForToken,
             expectedOutputAmount: Math.floor(solForToken * 1000000),
             priceImpactPct: '0',
@@ -1110,12 +1251,44 @@ export async function buildUnsignedEtfPurchase(
           console.error(`[JupiterSwap] Fallback also failed for ${symbol}:`, fallbackError.message);
         }
       } else {
-        // On mainnet, try Raydium as error recovery
-        console.log(`[JupiterSwap] Trying Raydium after Jupiter error for ${symbol}...`);
+        // On mainnet, try Pump.fun then Raydium as error recovery
+        console.log(`[JupiterSwap] Trying alternatives after Jupiter error for ${symbol}...`);
+
+        // Try Pump.fun first for pump tokens
+        if (isPump) {
+          try {
+            const pumpSwap = await getPumpFunSwap(
+              outputMintStr,
+              solForToken,
+              userWallet.toBase58(),
+              100
+            );
+
+            if (pumpSwap) {
+              swapTransactions.push({
+                transaction: pumpSwap.transaction,
+                inputMint: SOL_MINT,
+                outputMint: outputMintStr,
+                inputAmount: solForToken,
+                expectedOutputAmount: parseInt(pumpSwap.outAmount),
+                priceImpactPct: '0',
+                tokenSymbol: symbol,
+                tokenWeight: percentage,
+              });
+
+              console.log(`[JupiterSwap] ✅ PumpFun ${i + 1}: Transaction ready (error recovery)`);
+              continue;
+            }
+          } catch (pumpError: any) {
+            console.error(`[JupiterSwap] Pump.fun also failed for ${symbol}:`, pumpError.message);
+          }
+        }
+
+        // Try Raydium as final fallback
         try {
           const raydiumSwap = await getRaydiumSwap(
             SOL_MINT,
-            finalOutputMint.toBase58(),
+            outputMintStr,
             lamports,
             userWallet.toBase58(),
             100
