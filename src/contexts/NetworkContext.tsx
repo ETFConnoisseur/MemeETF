@@ -4,7 +4,7 @@ import { clusterApiUrl } from '@solana/web3.js';
 export type Network = 'devnet' | 'mainnet-beta';
 
 // Mainnet RPC - use environment variable, fallback to public endpoint
-const MAINNET_RPC = process.env.NEXT_PUBLIC_MAINNET_RPC_URL || 'https://api.mainnet-beta.solana.com';
+const MAINNET_RPC = import.meta.env.VITE_MAINNET_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
 interface NetworkContextType {
   network: Network;
