@@ -16,8 +16,94 @@ import {
   Transaction,
   VersionedTransaction,
   SendTransactionError,
+  TransactionMessage,
 } from '@solana/web3.js';
 import { Buffer } from 'buffer';
+
+// Helper to check if error is due to expired blockhash
+const isBlockhashExpiredError = (error: any): boolean => {
+  const message = error?.message?.toLowerCase() || '';
+  return message.includes('block height exceeded') ||
+         message.includes('blockhash not found') ||
+         message.includes('has expired');
+};
+
+// Helper to send transaction with retry on blockhash expiry
+const sendWithRetry = async (
+  connection: any,
+  signTransaction: any,
+  txBuffer: Buffer,
+  publicKey: any,
+  maxRetries: number = 2
+): Promise<string> => {
+  let lastError: any;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      // Get fresh blockhash for each attempt
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+
+      let signedTx: Transaction | VersionedTransaction;
+      let serializedTx: Uint8Array;
+
+      try {
+        // Try as VersionedTransaction first (Jupiter swaps)
+        const versionedTx = VersionedTransaction.deserialize(txBuffer);
+
+        // Update blockhash for versioned transaction
+        const message = TransactionMessage.decompile(versionedTx.message);
+        message.recentBlockhash = blockhash;
+        versionedTx.message = message.compileToV0Message();
+
+        signedTx = await signTransaction(versionedTx as any);
+        serializedTx = (signedTx as VersionedTransaction).serialize();
+      } catch {
+        // Fall back to legacy Transaction
+        const legacyTx = Transaction.from(txBuffer);
+        legacyTx.feePayer = publicKey;
+        legacyTx.recentBlockhash = blockhash;
+        legacyTx.lastValidBlockHeight = lastValidBlockHeight;
+
+        signedTx = await signTransaction(legacyTx);
+        serializedTx = (signedTx as Transaction).serialize();
+      }
+
+      const signature = await connection.sendRawTransaction(serializedTx, {
+        skipPreflight: false,
+        maxRetries: 3,
+      });
+
+      await connection.confirmTransaction({
+        signature,
+        blockhash,
+        lastValidBlockHeight,
+      }, 'confirmed');
+
+      return signature;
+    } catch (error: any) {
+      lastError = error;
+
+      // Check if user cancelled - don't retry
+      const errorMessage = error?.message?.toLowerCase() || '';
+      if (errorMessage.includes('user rejected') ||
+          errorMessage.includes('user cancelled') ||
+          errorMessage.includes('user denied') ||
+          errorMessage.includes('rejected the request')) {
+        throw new Error('Transaction cancelled by user');
+      }
+
+      // If blockhash expired and we have retries left, try again
+      if (isBlockhashExpiredError(error) && attempt < maxRetries) {
+        console.log(`[Transaction] Blockhash expired, retrying (${attempt + 1}/${maxRetries})...`);
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  throw lastError;
+};
 
 // Types matching backend response
 interface UnsignedSwapTransaction {
@@ -245,7 +331,7 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
       }
       setProgress(45);
 
-      // Step 3: Sign and send swap transactions
+      // Step 3: Sign and send swap transactions with retry on blockhash expiry
       const totalSwaps = purchase.swapTransactions.length;
       let successfulSwaps = 0;
 
@@ -257,40 +343,14 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
         try {
           const txBuffer = Buffer.from(swap.transaction, 'base64');
 
-          // Try to determine if it's a VersionedTransaction or legacy Transaction
-          // VersionedTransaction starts with version byte (0x80 for v0)
-          // Legacy Transaction starts with signature count (usually 0x01 or 0x00)
-          let signedTx: Transaction | VersionedTransaction;
-          let serializedTx: Uint8Array;
-
-          try {
-            // First try as VersionedTransaction (Jupiter swaps)
-            const versionedTx = VersionedTransaction.deserialize(txBuffer);
-            signedTx = await signTransaction(versionedTx as any);
-            serializedTx = (signedTx as VersionedTransaction).serialize();
-          } catch {
-            // Fall back to legacy Transaction (devnet fallback)
-            console.log(`[ETF Purchase] Swap ${i + 1} is legacy transaction, handling...`);
-            const legacyTx = Transaction.from(txBuffer);
-            legacyTx.feePayer = publicKey;
-
-            const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-            legacyTx.recentBlockhash = blockhash;
-            legacyTx.lastValidBlockHeight = lastValidBlockHeight;
-
-            signedTx = await signTransaction(legacyTx);
-            serializedTx = (signedTx as Transaction).serialize();
-          }
-
-          const swapSignature = await connection.sendRawTransaction(serializedTx);
-
-          const { blockhash: swapBlockhash, lastValidBlockHeight: swapHeight } =
-            await connection.getLatestBlockhash('confirmed');
-          await connection.confirmTransaction({
-            signature: swapSignature,
-            blockhash: swapBlockhash,
-            lastValidBlockHeight: swapHeight,
-          }, 'confirmed');
+          // Use retry helper which handles blockhash expiry
+          const swapSignature = await sendWithRetry(
+            connection,
+            signTransaction,
+            txBuffer,
+            publicKey,
+            2 // max retries
+          );
 
           signatures.push(swapSignature);
           successfulSwaps++;
@@ -302,7 +362,8 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
           if (errorMessage.includes('user rejected') ||
               errorMessage.includes('user cancelled') ||
               errorMessage.includes('user denied') ||
-              errorMessage.includes('rejected the request')) {
+              errorMessage.includes('rejected the request') ||
+              errorMessage.includes('transaction cancelled')) {
             throw new Error('Transaction cancelled by user');
           }
           // Continue with other swaps for non-cancellation errors
@@ -401,24 +462,20 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
         setProgress(10 + ((i / totalSwaps) * 70));
 
         try {
-          const swapTx = VersionedTransaction.deserialize(
-            Buffer.from(swap.transaction, 'base64')
-          );
+          const txBuffer = Buffer.from(swap.transaction, 'base64');
 
-          const signedSwapTx = await signTransaction(swapTx as any);
-          const swapSignature = await connection.sendRawTransaction(
-            (signedSwapTx as VersionedTransaction).serialize()
+          // Use retry helper which handles blockhash expiry
+          const swapSignature = await sendWithRetry(
+            connection,
+            signTransaction,
+            txBuffer,
+            publicKey,
+            2 // max retries
           );
-
-          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-          await connection.confirmTransaction({
-            signature: swapSignature,
-            blockhash,
-            lastValidBlockHeight,
-          }, 'confirmed');
 
           signatures.push(swapSignature);
           successfulSwaps++;
+          console.log(`[ETF Sell] Swap ${i + 1}/${totalSwaps} confirmed:`, swapSignature);
         } catch (swapError: any) {
           console.error(`Sell swap ${i + 1} failed:`, swapError);
           // Check if user rejected/cancelled the transaction
@@ -426,7 +483,8 @@ export function useEtfTransaction(): UseEtfTransactionReturn {
           if (errorMessage.includes('user rejected') ||
               errorMessage.includes('user cancelled') ||
               errorMessage.includes('user denied') ||
-              errorMessage.includes('rejected the request')) {
+              errorMessage.includes('rejected the request') ||
+              errorMessage.includes('transaction cancelled')) {
             throw new Error('Transaction cancelled by user');
           }
           // Continue with other swaps for non-cancellation errors
