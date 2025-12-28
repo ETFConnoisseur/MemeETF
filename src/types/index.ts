@@ -23,6 +23,7 @@ export interface ETF {
   tokens: TokenAllocation[];     // Array of tokens in the ETF
   market_cap_at_list: number;    // Market cap at listing time
   token_hash?: string;           // Unique hash of token composition
+  tweet_url?: string;            // Optional tweet link for the ETF
   created_at: Date;
 }
 

@@ -365,6 +365,7 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
         userWallet: publicKey!.toBase58(),
         txSignature,
         network: network,
+        tweetUrl: tweetLink || undefined,
         tokens: validTokens.map(t => ({
           address: t.address,
           symbol: t.symbol || 'UNKNOWN',

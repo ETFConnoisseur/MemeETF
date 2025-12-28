@@ -39,6 +39,7 @@ export async function GET(
       market_cap_at_list: parseFloat(row.market_cap_at_list),
       tokens: typeof row.tokens === 'string' ? JSON.parse(row.tokens) : row.tokens,
       token_hash: row.token_hash,
+      tweet_url: row.twitter_link,
       created_at: row.created_at,
     };
 

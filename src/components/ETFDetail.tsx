@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, ExternalLink, TrendingUp, TrendingDown, Wallet, User, Copy, Check, RefreshCw, Trash2, Loader2 } from 'lucide-react';
+import { ArrowLeft, ExternalLink, TrendingUp, TrendingDown, Wallet, User, Copy, Check, RefreshCw, Trash2, Loader2, Twitter } from 'lucide-react';
+import { TweetEmbed } from './ui/TweetEmbed';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { apiGet, apiDelete } from '../lib/api';
 import { getTokenLogo } from '../lib/tokenLogos';
@@ -569,6 +570,17 @@ export function ETFDetail({ etfId, onNavigate }: ETFDetailProps) {
                 </div>
               ))}
             </div>
+
+            {/* Tweet Embed */}
+            {etf.tweet_url && (
+              <div className="mt-6 pt-6 border-t border-white/10">
+                <h3 className="text-lg mb-4 flex items-center gap-2">
+                  <Twitter className="w-5 h-5" />
+                  Creator's Tweet
+                </h3>
+                <TweetEmbed tweetUrl={etf.tweet_url} />
+              </div>
+            )}
           </div>
         </div>
 

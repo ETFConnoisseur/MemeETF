@@ -14,7 +14,7 @@ import { getDatabasePool } from '@/lib/database/connection';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, tokens, userWallet, txSignature, network = 'devnet' } = body;
+    const { name, tokens, userWallet, txSignature, network = 'devnet', tweetUrl } = body;
 
     // Validation
     if (!name || !tokens || !userWallet || !txSignature) {
@@ -107,10 +107,10 @@ export async function POST(request: NextRequest) {
 
     // Insert new ETF
     const result = await pool.query(
-      `INSERT INTO etf_listings (name, creator, contract_address, market_cap_at_list, tokens, token_hash, network)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, name, creator, contract_address, market_cap_at_list, tokens, network, created_at`,
-      [name, userWallet, etfPda.toBase58(), initialMarketCap, JSON.stringify(tokens), tokenHash, network]
+      `INSERT INTO etf_listings (name, creator, contract_address, market_cap_at_list, tokens, token_hash, network, twitter_link)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, name, creator, contract_address, market_cap_at_list, tokens, network, twitter_link, created_at`,
+      [name, userWallet, etfPda.toBase58(), initialMarketCap, JSON.stringify(tokens), tokenHash, network, tweetUrl || null]
     );
 
     const etf = {
@@ -120,6 +120,7 @@ export async function POST(request: NextRequest) {
       contract_address: result.rows[0].contract_address,
       market_cap_at_list: parseFloat(result.rows[0].market_cap_at_list),
       tokens: typeof result.rows[0].tokens === 'string' ? JSON.parse(result.rows[0].tokens) : result.rows[0].tokens,
+      tweet_url: result.rows[0].twitter_link,
       created_at: result.rows[0].created_at,
       network: result.rows[0].network,
     };
