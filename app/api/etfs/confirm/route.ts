@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PublicKey, Connection, clusterApiUrl } from '@solana/web3.js';
-import { getEtfPda } from '@/lib/solana/program';
+import { getEtfPda, getAllEtfPdas } from '@/lib/solana/program';
 import { generateTokenHash } from '@/lib/utils/tokenHash';
 import { getDatabasePool } from '@/lib/database/connection';
 
@@ -14,7 +14,7 @@ import { getDatabasePool } from '@/lib/database/connection';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, tokens, userWallet, txSignature, network = 'devnet', tweetUrl } = body;
+    const { name, tokens, userWallet, txSignature, network = 'devnet', tweetUrl, etfIndex } = body;
 
     // Validation
     if (!name || !tokens || !userWallet || !txSignature) {
@@ -56,7 +56,38 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify ETF account exists on-chain
-    const [etfPda] = getEtfPda(userPubkey);
+    // Use etfIndex if provided, otherwise find the most recently created ETF
+    let etfPda: PublicKey;
+    let usedIndex: number;
+
+    if (typeof etfIndex === 'number' && etfIndex >= 0 && etfIndex < 5) {
+      // Use the provided index
+      [etfPda] = getEtfPda(userPubkey, etfIndex);
+      usedIndex = etfIndex;
+    } else {
+      // Find the last created ETF (last one that exists on-chain)
+      const allPdas = getAllEtfPdas(userPubkey);
+      let foundPda: PublicKey | null = null;
+      let foundIndex = -1;
+
+      for (const { pda, index } of allPdas) {
+        const account = await connection.getAccountInfo(pda);
+        if (account) {
+          foundPda = pda;
+          foundIndex = index;
+        }
+      }
+
+      if (!foundPda) {
+        return NextResponse.json({
+          error: 'ETF account not found on-chain. Transaction may have failed.'
+        }, { status: 400 });
+      }
+
+      etfPda = foundPda;
+      usedIndex = foundIndex;
+    }
+
     const etfAccount = await connection.getAccountInfo(etfPda);
 
     if (!etfAccount) {
@@ -65,7 +96,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    console.log('[ETF Confirm] ETF account verified on-chain:', etfPda.toBase58());
+    console.log(`[ETF Confirm] ETF account verified on-chain (index ${usedIndex}):`, etfPda.toBase58());
 
     // Calculate initial market cap
     let initialMarketCap = 0;

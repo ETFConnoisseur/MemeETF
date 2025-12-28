@@ -302,6 +302,7 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
         error?: string;
         transaction?: string;
         etfPda?: string;
+        etfIndex?: number;
       }>('/api/etfs/prepare', {
         name: etfName,
         userWallet: publicKey!.toBase58(),
@@ -366,6 +367,7 @@ export function ListNewETF({ onNavigate }: ListNewETFProps) {
         txSignature,
         network: network,
         tweetUrl: tweetLink || undefined,
+        etfIndex: prepareResponse.etfIndex,
         tokens: validTokens.map(t => ({
           address: t.address,
           symbol: t.symbol || 'UNKNOWN',

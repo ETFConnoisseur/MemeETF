@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PublicKey, Connection, clusterApiUrl } from '@solana/web3.js';
-import { buildUnsignedInitializeEtf, getEtfPda } from '@/lib/solana/program';
+import { buildUnsignedInitializeEtf, getEtfPda, getAllEtfPdas } from '@/lib/solana/program';
 import { generateTokenHash } from '@/lib/utils/tokenHash';
 import { getDatabasePool } from '@/lib/database/connection';
 
@@ -82,31 +82,43 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Check if user already has an ETF PDA on-chain
+    // Find next available ETF slot (each wallet can have up to 5 ETFs)
     const isDevnet = network === 'devnet';
     const rpcUrl = isDevnet
       ? clusterApiUrl('devnet')
       : process.env.MAINNET_RPC_URL || process.env.MAINNET_RPC_FALLBACK || clusterApiUrl('mainnet-beta');
     const connection = new Connection(rpcUrl, 'confirmed');
 
-    const [etfPda] = getEtfPda(userPubkey);
-    const existingAccount = await connection.getAccountInfo(etfPda);
-    if (existingAccount) {
+    // Check all 5 possible ETF slots to find the first available one
+    const allPdas = getAllEtfPdas(userPubkey);
+    let nextAvailableIndex = -1;
+
+    for (const { pda, index } of allPdas) {
+      const existingAccount = await connection.getAccountInfo(pda);
+      if (!existingAccount) {
+        nextAvailableIndex = index;
+        break;
+      }
+    }
+
+    if (nextAvailableIndex === -1) {
       return NextResponse.json({
-        error: 'You already have an ETF on-chain. Delete it first to create a new one.'
+        error: 'You have reached the maximum of 5 ETFs. Delete an existing ETF to create a new one.'
       }, { status: 400 });
     }
 
+    console.log(`[ETF Prepare] Using ETF slot ${nextAvailableIndex} for user ${userWallet}`);
     console.log('[ETF Prepare] Building unsigned transaction...');
     console.log('[ETF Prepare] User wallet:', userWallet);
     console.log('[ETF Prepare] Network:', network);
     console.log('[ETF Prepare] Tokens:', tokens.length);
 
-    // Build unsigned transaction
-    const { transaction, etfPda: pdaAddress } = await buildUnsignedInitializeEtf(
+    // Build unsigned transaction with the next available ETF index
+    const { transaction, etfPda: pdaAddress, etfIndex } = await buildUnsignedInitializeEtf(
       connection,
       userPubkey,
-      tokenPubkeys
+      tokenPubkeys,
+      nextAvailableIndex
     );
 
     console.log('[ETF Prepare] Transaction built successfully');
@@ -116,6 +128,7 @@ export async function POST(request: NextRequest) {
       success: true,
       transaction,
       etfPda: pdaAddress,
+      etfIndex,
       name,
       tokens,
       network,
