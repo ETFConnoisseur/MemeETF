@@ -48,7 +48,7 @@ export function Navigation({ activeTab, onTabChange }: NavigationProps) {
                   <button
                     key={tab}
                     onClick={() => onTabChange(tabValue)}
-                    className={`px-4 py-2 rounded-lg transition-all ${
+                    className={`px-4 py-2 rounded-lg transition-all whitespace-nowrap ${
                       activeTab === tabValue
                         ? 'text-white bg-white/10'
                         : 'text-white/60 hover:text-white/80 hover:bg-white/5'
